@@ -262,7 +262,7 @@ const SECTIONS = [
   { id: 'parvis_qualite', label: "Parvis piéton devant la gare", type: 'rating', scale: 4, labels: ['Absent', 'Sommaire', 'Standard', 'Qualitatif'] },
   { id: 'pieton_continuite', label: "Continuité piétonne vers la gare", type: 'rating', scale: 4, labels: ['Absente', 'Discontinue', 'Moyenne', 'Bonne'] },
   { id: 'pieton_qualite', label: "Qualité des cheminements", help: "Largeur, revêtement, traversées", type: 'rating', scale: 4, labels: ['Absents', 'Mauvaise', 'Moyenne', 'Bonne'] },
-  { id: 'eclairage_abords', label: "Éclairage des abords", help: "⚠ Difficile à estimer en journée", type: 'rating', scale: 4, labels: ['Absent', 'Insuffisant', 'Moyen', 'Bon'] }]
+  { id: 'eclairage_abords', label: "Éclairage des abords", help: "⚠ Difficile à estimer en journée — à confirmer si visite étendue à la nuit tombée", type: 'rating', scale: 4, labels: ['Absent', 'Insuffisant', 'Moyen', 'Bon'] }]
 },
 { id: 'velos', n: 4, title: 'Stationnement vélos', short: 'Vélos', icon: '⊙', subtitle: 'Cycles, VAE, trottinettes',
   skipIf: (g, d) => d?.carac_velos_present && getVal(d.carac_velos_present) === 'Absents',
@@ -2029,16 +2029,34 @@ function PickerScreen({ all, onPick, onBack }) {
    STATION PROGRESS — gare iso animée qui visualise l'avancement
    ============================================================ */
 function buildStationProgressSVG(progress, activeZone) {
-  // progress: { bureau, carac, parking, abords, velos, tc, bv, franch, quais } valeurs 0..1
-  // activeZone: id de la section actuellement active (pour scintillement)
+  // 4 états : empty / partial / done (tout vert) / active (tout rouge scintillant)
   const ISO_X = 0.866, ISO_Y = 0.5;
   const iso = (x, y, h) => { h = h || 0; return { x: (x-y)*ISO_X, y: (x+y)*ISO_Y - h }; };
   const stateFor = (pct) => pct === 0 ? 'empty' : pct >= 1 ? 'done' : 'partial';
 
-  const renderBlock = (b, palette, label, state) => {
+  // Couleurs DONE — vert validé unifié pour tous les blocs
+  const DONE = { top: '#4A8F66', side: '#2D6B43', sideR: '#1F4F31', stroke: '#0F3B22', text: '#FAF8F3' };
+
+  const renderBlock = (b, palette, label, state, isActive) => {
     const A=iso(b.x,b.y,b.h), B=iso(b.x+b.w,b.y,b.h);
     const C=iso(b.x+b.w,b.y+b.d,b.h), D=iso(b.x,b.y+b.d,b.h);
     const E=iso(b.x,b.y+b.d,0), F=iso(b.x+b.w,b.y+b.d,0), G=iso(b.x+b.w,b.y,0);
+
+    if (isActive) {
+      return `<g>
+        <polygon points="${B.x},${B.y} ${G.x},${G.y} ${F.x},${F.y} ${C.x},${C.y}" fill="#9E0B24" stroke="#1A1A1A" stroke-width="0.15">
+          <animate attributeName="fill" values="#9E0B24;#E8475B;#9E0B24" dur="1.4s" repeatCount="indefinite"/>
+        </polygon>
+        <polygon points="${C.x},${C.y} ${F.x},${F.y} ${E.x},${E.y} ${D.x},${D.y}" fill="#9E0B24" stroke="#1A1A1A" stroke-width="0.15" opacity="0.85">
+          <animate attributeName="fill" values="#9E0B24;#E8475B;#9E0B24" dur="1.4s" repeatCount="indefinite"/>
+        </polygon>
+        <polygon points="${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y} ${D.x},${D.y}" fill="#C8102E" stroke="#1A1A1A" stroke-width="0.15">
+          <animate attributeName="fill" values="#C8102E;#E8475B;#C8102E" dur="1.4s" repeatCount="indefinite"/>
+        </polygon>
+        ${label ? `<text x="${(A.x+C.x)/2}" y="${(A.y+C.y)/2+0.7}" font-size="2" font-weight="700" fill="#FAF8F3" text-anchor="middle">${label}</text>` : ''}
+      </g>`;
+    }
+
     if (state === 'empty') {
       const g0=iso(b.x,b.y,0), g1=iso(b.x+b.w,b.y,0);
       const g2=iso(b.x+b.w,b.y+b.d,0), g3=iso(b.x,b.y+b.d,0);
@@ -2048,70 +2066,85 @@ function buildStationProgressSVG(progress, activeZone) {
         ${label ? `<text x="${(g0.x+g2.x)/2}" y="${(g0.y+g2.y)/2+0.6}" font-size="1.6" fill="#8B8680" text-anchor="middle" font-style="italic">${label}</text>` : ''}
       </g>`;
     }
-    const opacity = state === 'partial' ? 0.55 : 1;
-    const labelColor = state === 'partial' ? '#5A5A5A' : '#1A1A1A';
-    return `<g opacity="${opacity}">
+
+    if (state === 'done') {
+      // Volume entier en VERT validé
+      return `<g>
+        <polygon points="${B.x},${B.y} ${G.x},${G.y} ${F.x},${F.y} ${C.x},${C.y}" fill="${DONE.sideR}" stroke="${DONE.stroke}" stroke-width="0.15"/>
+        <polygon points="${C.x},${C.y} ${F.x},${F.y} ${E.x},${E.y} ${D.x},${D.y}" fill="${DONE.side}" stroke="${DONE.stroke}" stroke-width="0.15"/>
+        <polygon points="${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y} ${D.x},${D.y}" fill="${DONE.top}" stroke="${DONE.stroke}" stroke-width="0.15"/>
+        ${label ? `<text x="${(A.x+C.x)/2}" y="${(A.y+C.y)/2+0.7}" font-size="2" font-weight="700" fill="${DONE.text}" text-anchor="middle">${label}</text>` : ''}
+      </g>`;
+    }
+
+    // partial : couleur naturelle estompée
+    return `<g opacity="0.55">
       <polygon points="${B.x},${B.y} ${G.x},${G.y} ${F.x},${F.y} ${C.x},${C.y}" fill="${palette.side}" stroke="#1A1A1A" stroke-width="0.12"/>
       <polygon points="${C.x},${C.y} ${F.x},${F.y} ${E.x},${E.y} ${D.x},${D.y}" fill="${palette.side}" stroke="#1A1A1A" stroke-width="0.12" opacity="0.85"/>
       <polygon points="${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y} ${D.x},${D.y}" fill="${palette.top}" stroke="#1A1A1A" stroke-width="0.12"/>
-      ${label ? `<text x="${(A.x+C.x)/2}" y="${(A.y+C.y)/2+0.7}" font-size="1.8" font-weight="600" fill="${labelColor}" text-anchor="middle">${label}</text>` : ''}
+      ${label ? `<text x="${(A.x+C.x)/2}" y="${(A.y+C.y)/2+0.7}" font-size="1.8" font-weight="600" fill="#5A5A5A" text-anchor="middle">${label}</text>` : ''}
     </g>`;
   };
 
-  // BV avec toit en pignon (à la place du bloc cubique standard)
-  const renderBVWithRoof = (b, state) => {
-    if (state === 'empty') {
-      // Contour fantôme au sol
-      const g0=iso(b.x,b.y,0), g1=iso(b.x+b.w,b.y,0);
-      const g2=iso(b.x+b.w,b.y+b.d,0), g3=iso(b.x,b.y+b.d,0);
-      return `<g opacity="0.5">
-        <polygon points="${g0.x},${g0.y} ${g1.x},${g1.y} ${g2.x},${g2.y} ${g3.x},${g3.y}"
-          fill="none" stroke="#8B8680" stroke-width="0.2" stroke-dasharray="0.8,0.6"/>
-        <text x="${(g0.x+g2.x)/2}" y="${(g0.y+g2.y)/2+0.6}" font-size="1.6" fill="#8B8680" text-anchor="middle" font-style="italic">BV</text>
-      </g>`;
-    }
-    const opacity = state === 'partial' ? 0.55 : 1;
-    const wallH = b.h;        // hauteur des murs
-    const roofExtra = 1.4;    // hauteur additionnelle du faîte au-dessus des murs
-    const overhang = 0.5;     // débord du toit
-
-    // Murs (rectangles latéraux)
+  // BV avec toit en pignon
+  const renderBVWithRoof = (b, state, isActive) => {
+    const wallH = b.h, roofExtra = 1.4, overhang = 0.5;
     const A=iso(b.x,b.y,wallH), B=iso(b.x+b.w,b.y,wallH);
     const C=iso(b.x+b.w,b.y+b.d,wallH), D=iso(b.x,b.y+b.d,wallH);
     const E=iso(b.x,b.y+b.d,0), F=iso(b.x+b.w,b.y+b.d,0), G=iso(b.x+b.w,b.y,0);
+    const ridgeY = b.y + b.d/2, ridgeH = wallH + roofExtra;
+    const r1=iso(b.x-overhang,b.y-overhang,wallH), r2=iso(b.x+b.w+overhang,b.y-overhang,wallH);
+    const r3=iso(b.x+b.w+overhang,b.y+b.d+overhang,wallH), r4=iso(b.x-overhang,b.y+b.d+overhang,wallH);
+    const ridgeL=iso(b.x-overhang,ridgeY,ridgeH), ridgeR=iso(b.x+b.w+overhang,ridgeY,ridgeH);
+    const pgN_W=iso(b.x,b.y,wallH), pgS_W=iso(b.x,b.y+b.d,wallH), pgM_W=iso(b.x,ridgeY,ridgeH);
+    const pgN_E=iso(b.x+b.w,b.y,wallH), pgS_E=iso(b.x+b.w,b.y+b.d,wallH), pgM_E=iso(b.x+b.w,ridgeY,ridgeH);
 
-    // Toit en pignon : faîte en x au milieu (parallèle à la voie)
-    const ridgeY = b.y + b.d/2;  // axe du faîte
-    const ridgeH = wallH + roofExtra;
-    const r1 = iso(b.x - overhang,        b.y - overhang,        wallH);  // avant-toit côté nord
-    const r2 = iso(b.x + b.w + overhang,  b.y - overhang,        wallH);
-    const r3 = iso(b.x + b.w + overhang,  b.y + b.d + overhang,  wallH);  // avant-toit côté sud
-    const r4 = iso(b.x - overhang,        b.y + b.d + overhang,  wallH);
-    const ridgeL = iso(b.x - overhang,       ridgeY, ridgeH);
-    const ridgeR = iso(b.x + b.w + overhang, ridgeY, ridgeH);
-    // Pignons triangulaires (sur les murs ouest et est)
-    const pgN_W = iso(b.x, b.y, wallH);
-    const pgS_W = iso(b.x, b.y + b.d, wallH);
-    const pgM_W = iso(b.x, ridgeY, ridgeH);
-    const pgN_E = iso(b.x + b.w, b.y, wallH);
-    const pgS_E = iso(b.x + b.w, b.y + b.d, wallH);
-    const pgM_E = iso(b.x + b.w, ridgeY, ridgeH);
-
-    return `<g opacity="${opacity}">
-      <!-- Murs -->
+    if (isActive) {
+      return `<g>
+        <polygon points="${B.x},${B.y} ${G.x},${G.y} ${F.x},${F.y} ${C.x},${C.y}" fill="#9E0B24" stroke="#1A1A1A" stroke-width="0.15">
+          <animate attributeName="fill" values="#9E0B24;#E8475B;#9E0B24" dur="1.4s" repeatCount="indefinite"/>
+        </polygon>
+        <polygon points="${C.x},${C.y} ${F.x},${F.y} ${E.x},${E.y} ${D.x},${D.y}" fill="#9E0B24" stroke="#1A1A1A" stroke-width="0.15" opacity="0.85">
+          <animate attributeName="fill" values="#9E0B24;#E8475B;#9E0B24" dur="1.4s" repeatCount="indefinite"/>
+        </polygon>
+        <polygon points="${pgN_E.x},${pgN_E.y} ${pgM_E.x},${pgM_E.y} ${pgS_E.x},${pgS_E.y}" fill="#C8102E" stroke="#1A1A1A" stroke-width="0.15">
+          <animate attributeName="fill" values="#C8102E;#E8475B;#C8102E" dur="1.4s" repeatCount="indefinite"/>
+        </polygon>
+        <polygon points="${r1.x},${r1.y} ${r2.x},${r2.y} ${ridgeR.x},${ridgeR.y} ${ridgeL.x},${ridgeL.y}" fill="#7A0820" stroke="#1A1A1A" stroke-width="0.15"/>
+        <polygon points="${ridgeL.x},${ridgeL.y} ${ridgeR.x},${ridgeR.y} ${r3.x},${r3.y} ${r4.x},${r4.y}" fill="#9E0B24" stroke="#1A1A1A" stroke-width="0.15">
+          <animate attributeName="fill" values="#9E0B24;#E8475B;#9E0B24" dur="1.4s" repeatCount="indefinite"/>
+        </polygon>
+        <text x="${pgN_E.x + 1}" y="${pgM_E.y + 1.5}" font-size="1.6" font-weight="700" fill="#FAF8F3">BV</text>
+      </g>`;
+    }
+    if (state === 'empty') {
+      const g0=iso(b.x,b.y,0), g1=iso(b.x+b.w,b.y,0);
+      const g2=iso(b.x+b.w,b.y+b.d,0), g3=iso(b.x,b.y+b.d,0);
+      return `<g opacity="0.5">
+        <polygon points="${g0.x},${g0.y} ${g1.x},${g1.y} ${g2.x},${g2.y} ${g3.x},${g3.y}" fill="none" stroke="#8B8680" stroke-width="0.2" stroke-dasharray="0.8,0.6"/>
+        <text x="${(g0.x+g2.x)/2}" y="${(g0.y+g2.y)/2+0.6}" font-size="1.6" fill="#8B8680" text-anchor="middle" font-style="italic">BV</text>
+      </g>`;
+    }
+    if (state === 'done') {
+      // BV entier en vert (murs + toit + pignons)
+      return `<g>
+        <polygon points="${B.x},${B.y} ${G.x},${G.y} ${F.x},${F.y} ${C.x},${C.y}" fill="${DONE.sideR}" stroke="${DONE.stroke}" stroke-width="0.15"/>
+        <polygon points="${C.x},${C.y} ${F.x},${F.y} ${E.x},${E.y} ${D.x},${D.y}" fill="${DONE.side}" stroke="${DONE.stroke}" stroke-width="0.15"/>
+        <polygon points="${pgN_E.x},${pgN_E.y} ${pgM_E.x},${pgM_E.y} ${pgS_E.x},${pgS_E.y}" fill="${DONE.top}" stroke="${DONE.stroke}" stroke-width="0.15"/>
+        <polygon points="${r1.x},${r1.y} ${r2.x},${r2.y} ${ridgeR.x},${ridgeR.y} ${ridgeL.x},${ridgeL.y}" fill="${DONE.sideR}" stroke="${DONE.stroke}" stroke-width="0.15"/>
+        <polygon points="${ridgeL.x},${ridgeL.y} ${ridgeR.x},${ridgeR.y} ${r3.x},${r3.y} ${r4.x},${r4.y}" fill="${DONE.top}" stroke="${DONE.stroke}" stroke-width="0.15"/>
+        <polygon points="${pgN_W.x},${pgN_W.y} ${pgM_W.x},${pgM_W.y} ${pgS_W.x},${pgS_W.y}" fill="${DONE.side}" stroke="${DONE.stroke}" stroke-width="0.15"/>
+        <text x="${pgN_E.x + 1}" y="${pgM_E.y + 1.5}" font-size="1.6" font-weight="700" fill="${DONE.text}">BV</text>
+      </g>`;
+    }
+    // partial — couleur naturelle estompée
+    return `<g opacity="0.55">
       <polygon points="${B.x},${B.y} ${G.x},${G.y} ${F.x},${F.y} ${C.x},${C.y}" fill="#C8C3B5" stroke="#1A1A1A" stroke-width="0.12"/>
       <polygon points="${C.x},${C.y} ${F.x},${F.y} ${E.x},${E.y} ${D.x},${D.y}" fill="#C8C3B5" stroke="#1A1A1A" stroke-width="0.12" opacity="0.85"/>
-      <!-- Pignon triangulaire est (visible) -->
       <polygon points="${pgN_E.x},${pgN_E.y} ${pgM_E.x},${pgM_E.y} ${pgS_E.x},${pgS_E.y}" fill="#D4CFC0" stroke="#1A1A1A" stroke-width="0.12"/>
-      <!-- Pan de toit nord -->
-      <polygon points="${r1.x},${r1.y} ${r2.x},${r2.y} ${ridgeR.x},${ridgeR.y} ${ridgeL.x},${ridgeL.y}" fill="#9E2424" stroke="#1A1A1A" stroke-width="0.12"/>
-      <!-- Pan de toit sud (vers observateur) -->
-      <polygon points="${ridgeL.x},${ridgeL.y} ${ridgeR.x},${ridgeR.y} ${r3.x},${r3.y} ${r4.x},${r4.y}" fill="#C8102E" stroke="#1A1A1A" stroke-width="0.12"/>
-      <!-- Pignon ouest -->
+      <polygon points="${r1.x},${r1.y} ${r2.x},${r2.y} ${ridgeR.x},${ridgeR.y} ${ridgeL.x},${ridgeL.y}" fill="#3A4A55" stroke="#1A1A1A" stroke-width="0.12"/>
+      <polygon points="${ridgeL.x},${ridgeL.y} ${ridgeR.x},${ridgeR.y} ${r3.x},${r3.y} ${r4.x},${r4.y}" fill="#4D5E6B" stroke="#1A1A1A" stroke-width="0.12"/>
       <polygon points="${pgN_W.x},${pgN_W.y} ${pgM_W.x},${pgM_W.y} ${pgS_W.x},${pgS_W.y}" fill="#B8B3A5" stroke="#1A1A1A" stroke-width="0.12" opacity="0.85"/>
-      <!-- Porte d'entrée centrale (côté sud) -->
-      <rect x="${(D.x+C.x)/2-0.8}" y="${(D.y+C.y)/2-2.2}" width="1.6" height="2.2" fill="#5A4A3A" stroke="#1A1A1A" stroke-width="0.1"/>
-      <!-- Label BV sur le pignon est -->
       <text x="${pgN_E.x + 1}" y="${pgM_E.y + 1.5}" font-size="1.6" font-weight="700" fill="#1A1A1A">BV</text>
     </g>`;
   };
@@ -2121,49 +2154,65 @@ function buildStationProgressSVG(progress, activeZone) {
     return `<g><line x1="${baseT.x}" y1="${baseT.y}" x2="${topT.x}" y2="${topT.y}" stroke="#5A4A3A" stroke-width="0.3"/><circle cx="${topT.x}" cy="${topT.y}" r="1.6" fill="#7A9970" stroke="#5A7A55" stroke-width="0.15"/></g>`;
   };
 
-  // Train rouge AREP — TOUJOURS animé
-  const renderTrain = (faded) => {
-    const tw=16, th=2.2, ttop=1.5, tbase=0.3;
-    const yMid=4, yN=yMid-th/2, yS=yMid+th/2;
-    const A=iso(0,yN,ttop), B=iso(tw,yN,ttop), C=iso(tw,yS,ttop), D=iso(0,yS,ttop);
-    const E=iso(0,yS,tbase), F=iso(tw,yS,tbase);
-    const cA=iso(tw,yN,ttop-0.2), cB=iso(tw+1.4,yMid,ttop-0.5), cC=iso(tw,yS,ttop-0.2);
-    const cD=iso(tw,yS,tbase), cE=iso(tw+1.4,yMid,tbase);
-    let bands = [0.85, 1.4].map(bh => {
-      const r1=iso(0,yS,bh), r2=iso(tw,yS,bh);
-      const r3=iso(tw,yS,bh-0.08), r4=iso(0,yS,bh-0.08);
-      return `<polygon points="${r1.x},${r1.y} ${r2.x},${r2.y} ${r3.x},${r3.y} ${r4.x},${r4.y}" fill="#F5F2EB"/>`;
-    }).join('');
-    let windows = [1.5,4.5,7.5,10.5,13.5].map(fx => {
-      const w1=iso(fx,yS,1.3), w2=iso(fx+2,yS,1.3);
-      const w3=iso(fx+2,yS,0.95), w4=iso(fx,yS,0.95);
-      return `<polygon points="${w1.x},${w1.y} ${w2.x},${w2.y} ${w3.x},${w3.y} ${w4.x},${w4.y}" fill="#0F1F38"/>`;
-    }).join('');
-    let bogies = [2,13].map(bx => {
-      const w1=iso(bx+0.4,yS-0.2,0.05), w2=iso(bx+1.4,yS-0.2,0.05);
-      return `<circle cx="${w1.x}" cy="${w1.y}" r="0.35" fill="#1A1A1A"/><circle cx="${w2.x}" cy="${w2.y}" r="0.35" fill="#1A1A1A"/>`;
-    }).join('');
+  // === TRAIN ULTRA-SIMPLE ===
+  // Juste une boîte rouge avec un toit gris, des fenêtres et un pare-brise. Minimaliste.
+  const renderTrainSimple = (faded) => {
+    // Train minimal : 3 wagons noirs rectangulaires reliés, avec roues
+    const wagonW = 5, wagonH = 1.5, wagonD = 2;
+    const gap = 0.5;
+    const nWagons = 3;
+    const yMid = 4, yN = yMid - wagonD/2, yS = yMid + wagonD/2;
+    const tbase = 0.3;
+    const top = tbase + wagonH;
 
-    // Animation toujours active — train traverse de gauche à droite en boucle
     const xS=-22, xE=120;
     const dx = iso(xE,0,0).x - iso(xS,0,0).x;
     const dy = iso(xE,0,0).y - iso(xS,0,0).y;
     const sx = iso(xS,0,0).x - iso(0,0,0).x;
     const sy = iso(xS,0,0).y - iso(0,0,0).y;
-    const groupOpacity = faded ? 0.35 : 1;
+    const grpOpa = faded ? 0.4 : 1;
 
-    return `<g opacity="${groupOpacity}">
-      <animateTransform attributeName="transform" type="translate" from="${sx} ${sy}" to="${sx+dx} ${sy+dy}" dur="14s" repeatCount="indefinite"/>
-      <polygon points="${E.x},${E.y} ${F.x},${F.y} ${C.x},${C.y} ${D.x},${D.y}" fill="#C8102E" stroke="#9E0B24" stroke-width="0.12"/>
-      <polygon points="${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y} ${D.x},${D.y}" fill="#2A2A2A" stroke="#1A1A1A" stroke-width="0.12"/>
-      ${bands}${windows}
-      <polygon points="${cA.x},${cA.y} ${cB.x},${cB.y} ${cC.x},${cC.y} ${cD.x},${cD.y} ${cE.x},${cE.y}" fill="#E8475B" stroke="#9E0B24" stroke-width="0.12"/>
-      <polygon points="${cA.x},${cA.y} ${cB.x},${cB.y} ${cC.x},${cC.y}" fill="#2A2A2A" stroke="#1A1A1A" stroke-width="0.12"/>
-      <circle cx="${iso(tw+1.2,yMid,0.55).x}" cy="${iso(tw+1.2,yMid,0.55).y}" r="0.3" fill="#FFD24A">
-        <animate attributeName="opacity" values="0.7;1;0.7" dur="1s" repeatCount="indefinite"/>
-      </circle>
-      ${bogies}
-    </g>`;
+    let svg = `<g opacity="${grpOpa}"><animateTransform attributeName="transform" type="translate" from="${sx} ${sy}" to="${sx+dx} ${sy+dy}" dur="14s" repeatCount="indefinite"/>`;
+
+    // Pour chaque wagon
+    for (let i = 0; i < nWagons; i++) {
+      const x0 = i * (wagonW + gap);
+      const x1 = x0 + wagonW;
+      const A=iso(x0,yN,top), B=iso(x1,yN,top);
+      const C=iso(x1,yS,top), D=iso(x0,yS,top);
+      const E=iso(x0,yS,tbase), F=iso(x1,yS,tbase);
+      const G=iso(x1,yN,tbase);
+
+      // Face droite (sur le dernier wagon, plus visible)
+      svg += `<polygon points="${B.x},${B.y} ${G.x},${G.y} ${F.x},${F.y} ${C.x},${C.y}" fill="#0A0A0A" stroke="#1A1A1A" stroke-width="0.12"/>`;
+      // Face sud (côté observateur)
+      svg += `<polygon points="${E.x},${E.y} ${F.x},${F.y} ${C.x},${C.y} ${D.x},${D.y}" fill="#1A1A1A" stroke="#1A1A1A" stroke-width="0.12"/>`;
+      // Toit
+      svg += `<polygon points="${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y} ${D.x},${D.y}" fill="#2A2A2A" stroke="#1A1A1A" stroke-width="0.12"/>`;
+
+      // 2 roues par wagon
+      [x0+0.8, x1-0.8].forEach(rx => {
+        const w = iso(rx, yS-0.2, 0.05);
+        svg += `<circle cx="${w.x}" cy="${w.y}" r="0.38" fill="#1A1A1A" stroke="#5A5A5A" stroke-width="0.1"/>`;
+      });
+    }
+
+    // Attelages entre wagons (petite barre noire)
+    for (let i = 0; i < nWagons - 1; i++) {
+      const xa = (i+1) * wagonW + i * gap;
+      const xb = xa + gap;
+      const a1 = iso(xa, yMid, tbase + 0.4);
+      const a2 = iso(xb, yMid, tbase + 0.4);
+      svg += `<line x1="${a1.x}" y1="${a1.y}" x2="${a2.x}" y2="${a2.y}" stroke="#1A1A1A" stroke-width="0.25"/>`;
+    }
+
+    // Phare jaune sur le wagon de tête (le plus à droite, sens de marche)
+    const headX = (nWagons - 1) * (wagonW + gap) + wagonW;
+    const ph = iso(headX - 0.1, yS, tbase + wagonH/2);
+    svg += `<circle cx="${ph.x}" cy="${ph.y}" r="0.32" fill="#FFE76A" stroke="#1A1A1A" stroke-width="0.06"><animate attributeName="opacity" values="0.6;1;0.6" dur="1s" repeatCount="indefinite"/></circle>`;
+
+    svg += `</g>`;
+    return svg;
   };
 
   // Volumes
@@ -2174,56 +2223,40 @@ function buildStationProgressSVG(progress, activeZone) {
   const TC = { x:26, y:13, w:9, d:5, h:2.2 };
   const PARK = { x:60, y:13, w:26, d:7, h:0.6 };
   const PARV = { x:14, y:21, w:72, d:3, h:0.3 };
-  const FR = { x:45, y:1, w:4, d:8, h:6 };
+  const FR = { x:45, y:1, w:4, d:8, h:2 };  // <-- encore plus bas (2 au lieu de 3.5)
   const ROUTE_Y = 26, RAILS_LEN = 95;
-
-  // Centres de zones (pour le scintillement)
-  const CENTERS = {
-    quais:   { x: (Q1.x+Q1.w/2), y: (Q1.y+Q1.d/2),     h: Q1.h + 0.5 },
-    bv:      { x: (BV.x+BV.w/2), y: (BV.y+BV.d/2),     h: BV.h + 2.5 },
-    velos:   { x: (VELOS.x+VELOS.w/2), y: (VELOS.y+VELOS.d/2), h: VELOS.h + 0.8 },
-    tc:      { x: (TC.x+TC.w/2),    y: (TC.y+TC.d/2),  h: TC.h + 0.8 },
-    parking: { x: (PARK.x+PARK.w/2), y: (PARK.y+PARK.d/2), h: PARK.h + 0.8 },
-    abords:  { x: (PARV.x+PARV.w/2), y: (PARV.y+PARV.d/2), h: 1.5 },
-    franch:  { x: (FR.x+FR.w/2),     y: (FR.y+FR.d/2),  h: FR.h + 0.8 }
-  };
 
   const PAL = {
     quais:   { top:'#F5F2EB', side:'#D9D3C4' },
     velos:   { top:'#E5E7EB', side:'#9CA3AF' },
     tc:      { top:'#E5E7EB', side:'#9CA3AF' },
     parking: { top:'#EDE8DD', side:'#D9D3C4' },
-    parvis:  { top:'#FBEAEC', side:'#E8C8CD' },
-    franch:  { top:'#C8102E', side:'#9E0B24' }
+    parvis:  { top:'#EDE6D8', side:'#D4C9B0' },
+    franch:  { top:'#9CA3AF', side:'#6B7280' }
   };
 
-  const corners = [iso(0,0,0), iso(95,0,0), iso(0,30,0), iso(95,30,0), iso(45,1,8)];
+  const corners = [iso(0,0,0), iso(95,0,0), iso(0,30,0), iso(95,30,0), iso(45,1,4)];
   const minX = Math.min.apply(null, corners.map(p=>p.x)) - 6;
   const maxX = Math.max.apply(null, corners.map(p=>p.x)) + 6;
-  const minY = Math.min.apply(null, corners.map(p=>p.y)) - 8;
-  const maxY = Math.max.apply(null, corners.map(p=>p.y)) + 6;
+  const minY = Math.min.apply(null, corners.map(p=>p.y)) - 10;
+  const maxY = Math.max.apply(null, corners.map(p=>p.y)) + 8;
 
   let svg = `<svg viewBox="${minX} ${minY} ${maxX-minX} ${maxY-minY}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">`;
 
   // Sol
-  const g1=iso(0,0,0), g2=iso(95,0,0), g3=iso(95,30,0), g4=iso(0,30,0);
+  const g1=iso(0,0,0), g2=iso(95,0,0), g3=iso(95,32,0), g4=iso(0,32,0);
   svg += `<polygon points="${g1.x},${g1.y} ${g2.x},${g2.y} ${g3.x},${g3.y} ${g4.x},${g4.y}" fill="#F5F2EB" stroke="#EDE8DD" stroke-width="0.3"/>`;
 
   // Route
-  if (progress.abords > 0) {
-    const opacity = progress.abords >= 1 ? 0.85 : 0.5;
-    const r1=iso(0,ROUTE_Y,0), r2=iso(95,ROUTE_Y,0), r3=iso(95,30,0), r4=iso(0,30,0);
-    svg += `<polygon points="${r1.x},${r1.y} ${r2.x},${r2.y} ${r3.x},${r3.y} ${r4.x},${r4.y}" fill="#EDE8DD" opacity="${opacity}"/>`;
-    if (progress.abords >= 0.5) {
-      for (let i=0; i<7; i++) {
-        const cx = 8 + i*12;
-        const p1=iso(cx,(ROUTE_Y+30)/2,0), p2=iso(cx+6,(ROUTE_Y+30)/2,0);
-        svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#BFB9AC" stroke-width="0.4"/>`;
-      }
-    }
-  } else {
-    const r1=iso(0,ROUTE_Y,0), r2=iso(95,ROUTE_Y,0), r3=iso(95,30,0), r4=iso(0,30,0);
-    svg += `<polygon points="${r1.x},${r1.y} ${r2.x},${r2.y} ${r3.x},${r3.y} ${r4.x},${r4.y}" fill="none" stroke="#D9D3C4" stroke-width="0.2" stroke-dasharray="0.8,0.6"/>`;
+  const r1=iso(0,ROUTE_Y,0), r2=iso(95,ROUTE_Y,0), r3=iso(95,32,0), r4=iso(0,32,0);
+  svg += `<polygon points="${r1.x},${r1.y} ${r2.x},${r2.y} ${r3.x},${r3.y} ${r4.x},${r4.y}" fill="#5A5A5A" stroke="#1A1A1A" stroke-width="0.15"/>`;
+  const tr1=iso(0,ROUTE_Y-0.4,0.05), tr2=iso(95,ROUTE_Y-0.4,0.05);
+  const tr3=iso(95,ROUTE_Y,0.05), tr4=iso(0,ROUTE_Y,0.05);
+  svg += `<polygon points="${tr1.x},${tr1.y} ${tr2.x},${tr2.y} ${tr3.x},${tr3.y} ${tr4.x},${tr4.y}" fill="#BFB9AC"/>`;
+  for (let i = 0; i < 9; i++) {
+    const cx = 5 + i * 11;
+    const m1=iso(cx,(ROUTE_Y+32)/2,0.1), m2=iso(cx+5,(ROUTE_Y+32)/2,0.1);
+    svg += `<line x1="${m1.x}" y1="${m1.y}" x2="${m2.x}" y2="${m2.y}" stroke="#F5F2EB" stroke-width="0.5"/>`;
   }
 
   // Rails
@@ -2238,42 +2271,64 @@ function buildStationProgressSVG(progress, activeZone) {
   });
 
   // Quais
-  svg += renderBlock(Q1, PAL.quais, null, stateFor(progress.quais));
-  svg += renderBlock(Q2, PAL.quais, null, stateFor(progress.quais));
+  svg += renderBlock(Q1, PAL.quais, null, stateFor(progress.quais), activeZone === 'quais');
+  svg += renderBlock(Q2, PAL.quais, null, stateFor(progress.quais), activeZone === 'quais');
 
-  // Train — TOUJOURS animé (faded si quais pas finis)
-  svg += renderTrain(progress.quais < 1);
+  // Train simple
+  svg += renderTrainSimple(progress.quais < 1);
 
-  // BV avec toit en pignon
-  svg += renderBVWithRoof(BV, stateFor(progress.bv));
+  // BV
+  svg += renderBVWithRoof(BV, stateFor(progress.bv), activeZone === 'bv');
+
   // Intermodal
-  svg += renderBlock(VELOS, PAL.velos, 'Vélos', stateFor(progress.velos));
-  svg += renderBlock(TC, PAL.tc, 'TC', stateFor(progress.tc));
-  svg += renderBlock(PARK, PAL.parking, 'Parking', stateFor(progress.parking));
-  // Parvis
-  svg += renderBlock(PARV, PAL.parvis, null, stateFor(progress.abords));
+  svg += renderBlock(VELOS, PAL.velos, 'Vélos', stateFor(progress.velos), activeZone === 'velos');
+  svg += renderBlock(TC, PAL.tc, 'TC', stateFor(progress.tc), activeZone === 'tc');
+  svg += renderBlock(PARK, PAL.parking, 'Parking', stateFor(progress.parking), activeZone === 'parking');
+  // Parvis (lié à abords)
+  svg += renderBlock(PARV, PAL.parvis, null, stateFor(progress.abords), activeZone === 'abords');
   // Passerelle
-  svg += renderBlock(FR, PAL.franch, null, stateFor(progress.franch));
+  svg += renderBlock(FR, PAL.franch, null, stateFor(progress.franch), activeZone === 'franch');
 
   // Arbres
   if (progress.abords >= 0.5) {
     svg += renderTree(3,14) + renderTree(92,14) + renderTree(3,24) + renderTree(92,24);
   }
 
-  // SCINTILLEMENT — point rouge clignotant sur la zone active
-  if (activeZone && CENTERS[activeZone]) {
-    const c = CENTERS[activeZone];
-    const p = iso(c.x, c.y, c.h);
-    svg += `<g pointerEvents="none">
-      <circle cx="${p.x}" cy="${p.y}" r="1" fill="#C8102E" opacity="0.4">
-        <animate attributeName="r" values="1;3.5;1" dur="1.6s" repeatCount="indefinite"/>
-        <animate attributeName="opacity" values="0.5;0;0.5" dur="1.6s" repeatCount="indefinite"/>
-      </circle>
-      <circle cx="${p.x}" cy="${p.y}" r="0.9" fill="#C8102E" stroke="#FAF8F3" stroke-width="0.2">
-        <animate attributeName="opacity" values="1;0.55;1" dur="1.2s" repeatCount="indefinite"/>
-      </circle>
-    </g>`;
+  // === LOGO BUREAU en haut à droite ===
+  const isBureauActive = activeZone === 'bureau';
+  const isBureauDone = progress.bureau >= 1;
+  const logoX = maxX - 12;
+  const logoY = minY + 8;
+
+  svg += `<g transform="translate(${logoX} ${logoY})">`;
+  if (isBureauActive) {
+    svg += `<circle cx="0" cy="0" r="4" fill="#C8102E" opacity="0.3">
+      <animate attributeName="r" values="4;7;4" dur="1.6s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.4;0;0.4" dur="1.6s" repeatCount="indefinite"/>
+    </circle>`;
   }
+  // Couleur du logo selon état : actif=rouge / done=vert / partial-empty=fond clair
+  const logoBg = isBureauActive ? '#C8102E' : (isBureauDone ? '#4A8F66' : '#FAF8F3');
+  const logoFg = (isBureauActive || isBureauDone) ? '#FAF8F3' : '#1A1A1A';
+  const logoStroke = isBureauActive ? '#9E0B24' : (isBureauDone ? '#1F4F31' : '#1A1A1A');
+  svg += `<circle cx="0" cy="0" r="3.4" fill="${logoBg}" stroke="${logoStroke}" stroke-width="0.25">`;
+  if (isBureauActive) {
+    svg += `<animate attributeName="fill" values="#C8102E;#E8475B;#C8102E" dur="1.4s" repeatCount="indefinite"/>`;
+  }
+  svg += `</circle>`;
+  svg += `<rect x="-2.2" y="0.4" width="4.4" height="0.4" fill="${logoFg}" rx="0.1"/>`;
+  svg += `<rect x="-2" y="0.8" width="0.3" height="1.3" fill="${logoFg}"/>`;
+  svg += `<rect x="1.7" y="0.8" width="0.3" height="1.3" fill="${logoFg}"/>`;
+  svg += `<rect x="-1.3" y="-0.2" width="1.7" height="0.6" fill="${logoFg}" opacity="0.95" rx="0.05"/>`;
+  svg += `<line x1="-1" y1="0.05" x2="0.1" y2="0.05" stroke="${logoBg}" stroke-width="0.08"/>`;
+  svg += `<line x1="-1" y1="0.2" x2="0.0" y2="0.2" stroke="${logoBg}" stroke-width="0.08"/>`;
+  svg += `<line x1="1" y1="0.4" x2="1" y2="-0.6" stroke="${logoFg}" stroke-width="0.18"/>`;
+  svg += `<line x1="1" y1="-0.6" x2="1.7" y2="-1.1" stroke="${logoFg}" stroke-width="0.18"/>`;
+  svg += `<polygon points="1.7,-1.1 2.1,-1.4 1.95,-0.85 1.55,-0.95" fill="${logoFg}"/>`;
+  svg += `</g>`;
+  // Label BUREAU
+  const labelColor = isBureauActive ? '#C8102E' : (isBureauDone ? '#1F4F31' : '#8B8680');
+  svg += `<text x="${logoX}" y="${logoY + 6.5}" font-size="1.4" fill="${labelColor}" text-anchor="middle" font-weight="${isBureauActive || isBureauDone ? '700' : '500'}" letter-spacing="0.05">BUREAU</text>`;
 
   svg += '</svg>';
   return svg;
@@ -3342,8 +3397,10 @@ function App() {
   };
 
   const updateVisite = (v) => {
-    setAll((a) => ({ ...a, [v.gare]: v }));
-    pushVisiteToSupa(v);
+    // Le dernier modificateur devient l'auteur affiché
+    const updated = { ...v, auteur: auteur };
+    setAll((a) => ({ ...a, [v.gare]: updated }));
+    pushVisiteToSupa(updated);
   };
 
   const deleteVisite = async (gareName) => {
