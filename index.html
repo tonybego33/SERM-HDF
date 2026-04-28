@@ -1,6 +1,4 @@
 <!DOCTYPE html><html lang="fr"><head>
-
-
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#C8102E">
@@ -2037,8 +2035,6 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
       setActiveId(sections[0]?.id);
     }
   }, [sections, activeId]);
-  const [planView, setPlanView] = useState(() => localStorage.getItem('serm-planview') || 'iso');
-  useEffect(() => { localStorage.setItem('serm-planview', planView); }, [planView]);
   const stats = visiteStats(gare, visite.data);
   const activeSection = sections.find((s) => s.id === activeId) || sections[0];
   const activeIdx = sections.findIndex((s) => s.id === (activeSection?.id));
@@ -2156,39 +2152,78 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
           <ProgressRing pct={stats.pct} size={48} />
         </div>
 
-        {/* MINI PLAN */}
-        <div style={{ padding: '0 12px 10px' }}>
-          {/* Toggle vue plan / iso */}
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6, paddingLeft:4 }}>
-            <span className="kicker" style={{ fontSize:9, color:'var(--taupe)' }}>Vue</span>
-            <div style={{ display:'flex', background:'var(--white)', border:'1px solid var(--border)', borderRadius:2, padding:1 }}>
-              {[
-                { v:'plan', label:'Plan' },
-                { v:'iso',  label:'Volumes' },
-              ].map((o) => (
-                <button key={o.v} onClick={() => setPlanView(o.v)} style={{
-                  padding:'3px 9px', fontSize:9.5, fontWeight:600, letterSpacing:'0.1em',
-                  textTransform:'uppercase',
-                  background: planView === o.v ? 'var(--ink)' : 'transparent',
-                  color: planView === o.v ? 'var(--paper-light)' : 'var(--ink-soft)',
-                  border:'none', cursor:'pointer'
-                }}>{o.label}</button>
-              ))}
-            </div>
-            <div style={{ flex:1, height:1, background:'var(--border)' }}/>
-            <span style={{ fontSize:9, color:'var(--taupe)', letterSpacing:'0.08em', textTransform:'uppercase' }}>
-              {planView === 'plan' ? 'Plan-masse' : 'Iso 30°'}
-            </span>
-          </div>
+        {/* CONTEXTE GARE — bandeau sobre remplaçant le mini-plan */}
+        <div style={{ padding: '4px 18px 14px' }}>
+          {(() => {
+            const skipped = sections.filter(s => s.skipIf && s.skipIf(gare, visite.data));
+            const allSections = SECTIONS.filter(s => !s.synth); // hors synthèse optionnelle
+            const activeCount = allSections.filter(s => !(s.skipIf && s.skipIf(gare, visite.data))).length;
+            const totalCount = allSections.length;
 
-          {/* Plan iso + mini-carte SERM côte à côte */}
-          <div style={{ display:'flex', gap:8, alignItems:'stretch' }}>
-            <div style={{ flex:1, minWidth:0 }}>
-              <StationMap gare={gare} data={visite.data} activeId={activeId} onZone={setActiveId}
-                hasBV={hasBV} hasFranch={hasFranch} compact viewMode={planView}/>
-            </div>
-            <MiniSermMap gare={gare} />
-          </div>
+            return (
+              <div style={{
+                background: 'var(--white)', border: '1px solid var(--border)',
+                borderLeft: '3px solid var(--red)',
+                padding: '12px 14px',
+                display: 'flex', flexDirection: 'column', gap: 8
+              }}>
+                {/* Ligne 1 — typologie + axe */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0, flex: 1 }}>
+                    <span className="kicker" style={{ fontSize: 9, color: 'var(--taupe)', letterSpacing: '0.14em', flexShrink: 0 }}>
+                      Typologie
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)',
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {getTypologie(gare)}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexShrink: 0 }}>
+                    <span className="tabular" style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{activeCount}</span>
+                    <span style={{ fontSize: 10.5, color: 'var(--taupe)' }}>
+                      / {totalCount} sections actives
+                    </span>
+                  </div>
+                </div>
+
+                {/* Ligne 2 — config / quais — info ferroviaire concrète */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 11,
+                  color: 'var(--ink-soft)', paddingTop: 6, borderTop: '1px dashed var(--border)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span className="kicker" style={{ fontSize: 8.5, color: 'var(--taupe)', letterSpacing: '0.1em' }}>Config</span>
+                    <span style={{ fontWeight: 500 }}>{gare.config === 'unilaterale' ? 'Unilatérale' : 'Biface'}</span>
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span className="kicker" style={{ fontSize: 8.5, color: 'var(--taupe)', letterSpacing: '0.1em' }}>Quais</span>
+                    <span className="tabular" style={{ fontWeight: 600 }}>{gare.quais}</span>
+                  </span>
+                  {gare.axe && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span className="kicker" style={{ fontSize: 8.5, color: 'var(--taupe)', letterSpacing: '0.1em' }}>Axe</span>
+                      <span style={{ fontWeight: 500 }}>{gare.axe}</span>
+                    </span>
+                  )}
+                </div>
+
+                {/* Ligne 3 — sections sautées (si applicable) */}
+                {skipped.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, paddingTop: 6,
+                    borderTop: '1px dashed var(--border)' }}>
+                    <span className="kicker" style={{ fontSize: 8.5, color: 'var(--taupe)',
+                      letterSpacing: '0.1em', flexShrink: 0 }}>
+                      Skippé
+                    </span>
+                    <span style={{ fontSize: 10.5, color: 'var(--ink-soft)', lineHeight: 1.4 }}>
+                      {skipped.map(s => s.short).join(' · ')}
+                      <span style={{ color: 'var(--taupe)', fontStyle: 'italic', marginLeft: 6 }}>
+                        — sans objet pour cette gare
+                      </span>
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* SECTION CHIPS — horizontal scroll */}
@@ -2760,24 +2795,6 @@ function OverviewScreen({ gare, visite, onBack, onZone, onExport }) {
           {stats.pct === 100 ? 'Visite complète.' : `Visite en cours · ${stats.pct}%`}
         </h2>
         <div style={{ height: 3, width: 30, background: 'var(--red)', marginBottom: 18 }} />
-
-        {/* Big plan with all states */}
-        <div style={{ background: 'var(--white)', border: '1px solid var(--border)', padding: '12px 8px 6px', marginBottom: 18 }}>
-          <StationMap gare={gare} data={visite.data} activeId={null} onZone={onZone}
-          hasBV={!!sections.find((s) => s.id === 'bv')} hasFranch={!!sections.find((s) => s.id === 'franch')} />
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 14, padding: '10px 0 4px',
-            fontSize: 10, color: 'var(--taupe)', letterSpacing: '0.04em' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 9, height: 9, background: 'var(--ink)' }} /> complet
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 9, height: 9, background: 'var(--paper-shade)', border: '1px solid var(--taupe)' }} /> partiel
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 9, height: 9, background: 'var(--paper-light)', border: '1px dashed var(--taupe-light)' }} /> à faire
-            </span>
-          </div>
-        </div>
 
         {/* Section breakdown */}
         <div className="kicker" style={{ color: 'var(--taupe)', fontSize: 10, marginBottom: 10 }}>Décomposition par zone</div>
