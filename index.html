@@ -1662,60 +1662,6 @@ function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, to
           'radial-gradient(ellipse 500px 300px at 0% 100%, rgba(217,211,196,0.4), transparent 60%)'
       }} />
 
-      {/* Petit train décoratif qui traverse en arrière-plan, lentement */}
-      <svg style={{
-        position: 'absolute', top: 8, left: 0, width: '100%', height: 32,
-        pointerEvents: 'none', opacity: 0.55
-      }} viewBox="0 0 800 50" preserveAspectRatio="xMinYMid meet">
-        {/* rails très discrets */}
-        <line x1="0" y1="36" x2="800" y2="36" stroke="#D9D3C4" strokeWidth="1" />
-        <line x1="0" y1="40" x2="800" y2="40" stroke="#D9D3C4" strokeWidth="1" />
-        {/* traverses fines */}
-        {[...Array(40)].map((_, i) =>
-          <line key={i} x1={i * 20} y1="35" x2={i * 20} y2="42" stroke="#EDE8DD" strokeWidth="0.8" />
-        )}
-        {/* train animé */}
-        <g>
-          <animateTransform attributeName="transform" type="translate"
-            from="-180 0" to="900 0" dur="28s" repeatCount="indefinite" />
-          {/* ombre */}
-          <ellipse cx="60" cy="36" rx="60" ry="2.5" fill="rgba(26,26,26,0.18)" />
-          {/* châssis sombre */}
-          <rect x="2" y="29" width="118" height="2" fill="#1A1A1A" />
-          {/* corps rouge AREP */}
-          <rect x="2" y="14" width="118" height="15" fill="#C8102E" />
-          {/* bandeau blanc bas */}
-          <rect x="2" y="26" width="118" height="1.6" fill="#F5F2EB" />
-          {/* bandeau blanc haut */}
-          <rect x="2" y="15.5" width="118" height="1.4" fill="#F5F2EB" />
-          {/* toit gris foncé */}
-          <rect x="0" y="11" width="122" height="3.5" fill="#2A2A2A" />
-          {/* fenêtres */}
-          {[8, 24, 40, 56, 72, 88, 104].map((fx, i) =>
-            <rect key={i} x={fx} y="18" width="11" height="6" fill="#0F1F38" rx="0.6" />
-          )}
-          {/* pantographe */}
-          <line x1="38" y1="11" x2="44" y2="6" stroke="#1A1A1A" strokeWidth="0.8" />
-          <line x1="44" y1="6" x2="40" y2="3" stroke="#1A1A1A" strokeWidth="0.8" />
-          <line x1="32" y1="3" x2="48" y2="3" stroke="#1A1A1A" strokeWidth="1" />
-          {/* nez avant */}
-          <polygon points="120,14 128,20 128,28 120,29" fill="#E8475B" />
-          <polygon points="120,11 128,14 128,20 120,14" fill="#2A2A2A" />
-          {/* phare */}
-          <circle cx="126" cy="22" r="1.2" fill="#FFD24A">
-            <animate attributeName="opacity" values="0.7;1;0.7" dur="1.2s" repeatCount="indefinite" />
-          </circle>
-          {/* nez arrière */}
-          <polygon points="2,14 -6,20 -6,28 2,29" fill="#E8475B" />
-          <polygon points="2,11 -6,14 -6,20 2,14" fill="#2A2A2A" />
-          {/* bogies */}
-          <circle cx="22" cy="32" r="2.2" fill="#1A1A1A" />
-          <circle cx="32" cy="32" r="2.2" fill="#1A1A1A" />
-          <circle cx="92" cy="32" r="2.2" fill="#1A1A1A" />
-          <circle cx="102" cy="32" r="2.2" fill="#1A1A1A" />
-        </g>
-      </svg>
-
       <div style={{ position: 'relative', padding: '22px 22px 18px' }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
           marginBottom: 18, fontSize: 9.5, letterSpacing:'0.16em', color:'var(--taupe)',
