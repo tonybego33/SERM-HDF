@@ -494,187 +494,7 @@ const fmtAgo = (ts) => {
 };
 
 
-function StationMap({ gare, hasBV, hasFranch }) {
-  /* Mini-mockup iso 3D simple — un volume = 3 polygones, le tout dans le bon ordre. */
-  const noBV = (gare && gare.profile === 'halte_simple') || !hasBV;
-  const showFranch = hasFranch && gare && gare.config !== 'unilaterale' && gare.quais !== 1;
 
-  // Projection iso 30°
-  const ISO_X = 0.866, ISO_Y = 0.5;
-  const iso = (x, y, h) => {
-    h = h || 0;
-    return { x: (x - y) * ISO_X, y: (x + y) * ISO_Y - h };
-  };
-
-  // Volumes
-  const Q1 = { x: 5, y: 1,   w: 85, d: 2.5, h: 1 };
-  const Q2 = { x: 5, y: 6.5, w: 85, d: 2.5, h: 1 };
-  const BVol     = noBV ? null : { x: 38, y: 13, w: 18, d: 6, h: 5.5 };
-  const VELOS    = { x: 17, y: 13, w: 7,  d: 5, h: 1.8 };
-  const TCBus    = { x: 26, y: 13, w: 9,  d: 5, h: 2.2 };
-  const PARK     = { x: 60, y: 13, w: 26, d: 7, h: 0.6 };
-  const PARV     = { x: 14, y: 21, w: 72, d: 3, h: 0.3 };
-  const FR       = showFranch ? { x: 45, y: 1, w: 4, d: 8, h: 6 } : null;
-  const ROUTE_Y = 26;
-  const RAILS_LEN = 95;
-
-  // ViewBox
-  const corners = [iso(0, 0, 0), iso(95, 0, 0), iso(0, 30, 0), iso(95, 30, 0), iso(45, 1, 8)];
-  const minX = Math.min.apply(null, corners.map(p => p.x)) - 6;
-  const maxX = Math.max.apply(null, corners.map(p => p.x)) + 6;
-  const minY = Math.min.apply(null, corners.map(p => p.y)) - 8;
-  const maxY = Math.max.apply(null, corners.map(p => p.y)) + 6;
-
-  // Renderer pour un volume — retourne 3 <polygon>
-  const renderBlock = (b, fillTop, fillSide, label, key) => {
-    if (!b) return null;
-    const A = iso(b.x,        b.y,        b.h);
-    const B = iso(b.x + b.w,  b.y,        b.h);
-    const C = iso(b.x + b.w,  b.y + b.d,  b.h);
-    const D = iso(b.x,        b.y + b.d,  b.h);
-    const E = iso(b.x,        b.y + b.d,  0);
-    const F = iso(b.x + b.w,  b.y + b.d,  0);
-    const G = iso(b.x + b.w,  b.y,        0);
-    return (
-      <g key={key}>
-        <polygon points={`${B.x},${B.y} ${G.x},${G.y} ${F.x},${F.y} ${C.x},${C.y}`}
-          fill={fillSide} stroke="#1A1A1A" strokeWidth="0.12" />
-        <polygon points={`${C.x},${C.y} ${F.x},${F.y} ${E.x},${E.y} ${D.x},${D.y}`}
-          fill={fillSide} stroke="#1A1A1A" strokeWidth="0.12" opacity="0.85" />
-        <polygon points={`${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y} ${D.x},${D.y}`}
-          fill={fillTop} stroke="#1A1A1A" strokeWidth="0.12" />
-        {label && (
-          <text x={(A.x + C.x) / 2} y={(A.y + C.y) / 2 + 0.8}
-            fontSize="2" fontWeight="600" fill="#1A1A1A" textAnchor="middle">{label}</text>
-        )}
-      </g>
-    );
-  };
-
-  // Renderer pour un arbre
-  const renderTree = (tx, ty, key) => {
-    const baseT = iso(tx, ty, 0);
-    const topT = iso(tx, ty, 3);
-    return (
-      <g key={key}>
-        <line x1={baseT.x} y1={baseT.y} x2={topT.x} y2={topT.y} stroke="#5A4A3A" strokeWidth="0.3" />
-        <circle cx={topT.x} cy={topT.y} r="1.6" fill="#7A9970" stroke="#5A7A55" strokeWidth="0.15" />
-      </g>
-    );
-  };
-
-  // Train rouge AREP simple
-  const renderTrain = () => {
-    const tw = 16, th = 2.2, ttop = 1.5, tbase = 0.3;
-    const yMid = 4, yN = yMid - th/2, yS = yMid + th/2;
-    const xS = -20, xE = 115;
-    const dx = iso(xE, 0, 0).x - iso(xS, 0, 0).x;
-    const dy = iso(xE, 0, 0).y - iso(xS, 0, 0).y;
-    const sx = iso(xS, 0, 0).x - iso(0, 0, 0).x;
-    const sy = iso(xS, 0, 0).y - iso(0, 0, 0).y;
-    const A = iso(0, yN, ttop), B = iso(tw, yN, ttop);
-    const C = iso(tw, yS, ttop), D = iso(0, yS, ttop);
-    const E = iso(0, yS, tbase), F = iso(tw, yS, tbase);
-    const cA = iso(tw, yN, ttop - 0.2);
-    const cB = iso(tw + 1.4, yMid, ttop - 0.5);
-    const cC = iso(tw, yS, ttop - 0.2);
-    const cD = iso(tw, yS, tbase);
-    const cE = iso(tw + 1.4, yMid, tbase);
-    return (
-      <g pointerEvents="none">
-        <animateTransform attributeName="transform" type="translate"
-          from={`${sx} ${sy}`} to={`${sx + dx} ${sy + dy}`}
-          dur="14s" repeatCount="indefinite" />
-        <polygon points={`${E.x},${E.y} ${F.x},${F.y} ${C.x},${C.y} ${D.x},${D.y}`}
-          fill="#C8102E" stroke="#9E0B24" strokeWidth="0.12" />
-        <polygon points={`${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y} ${D.x},${D.y}`}
-          fill="#2A2A2A" stroke="#1A1A1A" strokeWidth="0.12" />
-        {[0.85, 1.4].map((bh, i) => {
-          const r1 = iso(0, yS, bh), r2 = iso(tw, yS, bh);
-          const r3 = iso(tw, yS, bh - 0.08), r4 = iso(0, yS, bh - 0.08);
-          return <polygon key={`band-${i}`} points={`${r1.x},${r1.y} ${r2.x},${r2.y} ${r3.x},${r3.y} ${r4.x},${r4.y}`} fill="#F5F2EB" />;
-        })}
-        {[1.5, 4.5, 7.5, 10.5, 13.5].map((fx, i) => {
-          const w1 = iso(fx, yS, 1.3), w2 = iso(fx + 2, yS, 1.3);
-          const w3 = iso(fx + 2, yS, 0.95), w4 = iso(fx, yS, 0.95);
-          return <polygon key={`win-${i}`} points={`${w1.x},${w1.y} ${w2.x},${w2.y} ${w3.x},${w3.y} ${w4.x},${w4.y}`} fill="#0F1F38" />;
-        })}
-        <polygon points={`${cA.x},${cA.y} ${cB.x},${cB.y} ${cC.x},${cC.y} ${cD.x},${cD.y} ${cE.x},${cE.y}`}
-          fill="#E8475B" stroke="#9E0B24" strokeWidth="0.12" />
-        <polygon points={`${cA.x},${cA.y} ${cB.x},${cB.y} ${cC.x},${cC.y}`}
-          fill="#2A2A2A" stroke="#1A1A1A" strokeWidth="0.12" />
-        <circle cx={iso(tw + 1.2, yMid, 0.55).x} cy={iso(tw + 1.2, yMid, 0.55).y} r="0.3" fill="#FFD24A">
-          <animate attributeName="opacity" values="0.7;1;0.7" dur="1s" repeatCount="indefinite" />
-        </circle>
-        {[2, 13].map((bx, i) => {
-          const w1 = iso(bx + 0.4, yS - 0.2, 0.05);
-          const w2 = iso(bx + 1.4, yS - 0.2, 0.05);
-          return (
-            <g key={`bog-${i}`}>
-              <circle cx={w1.x} cy={w1.y} r="0.35" fill="#1A1A1A" />
-              <circle cx={w2.x} cy={w2.y} r="0.35" fill="#1A1A1A" />
-            </g>
-          );
-        })}
-      </g>
-    );
-  };
-
-  return (
-    <svg viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
-      style={{ width: '100%', height: 'auto', display: 'block' }}>
-      {/* Sol */}
-      <polygon
-        points={`${iso(0,0,0).x},${iso(0,0,0).y} ${iso(95,0,0).x},${iso(95,0,0).y} ${iso(95,30,0).x},${iso(95,30,0).y} ${iso(0,30,0).x},${iso(0,30,0).y}`}
-        fill="#F5F2EB" stroke="#EDE8DD" strokeWidth="0.3" />
-      {/* Route */}
-      <polygon
-        points={`${iso(0,ROUTE_Y,0).x},${iso(0,ROUTE_Y,0).y} ${iso(95,ROUTE_Y,0).x},${iso(95,ROUTE_Y,0).y} ${iso(95,30,0).x},${iso(95,30,0).y} ${iso(0,30,0).x},${iso(0,30,0).y}`}
-        fill="#EDE8DD" opacity="0.8" />
-      {[0,1,2,3,4,5,6].map(i => {
-        const cx = 8 + i * 12;
-        const p1 = iso(cx, (ROUTE_Y + 30) / 2, 0);
-        const p2 = iso(cx + 6, (ROUTE_Y + 30) / 2, 0);
-        return <line key={`mk-${i}`} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#BFB9AC" strokeWidth="0.4" />;
-      })}
-      {/* Rails */}
-      {[4, 5].map((vy, i) => {
-        const aa = iso(0, vy - 0.6, 0.1), bb = iso(RAILS_LEN, vy - 0.6, 0.1);
-        const cc = iso(0, vy + 0.6, 0.1), dd = iso(RAILS_LEN, vy + 0.6, 0.1);
-        const p1 = iso(0, vy - 1, 0), p2 = iso(RAILS_LEN, vy - 1, 0);
-        const p3 = iso(RAILS_LEN, vy + 1, 0), p4 = iso(0, vy + 1, 0);
-        return (
-          <g key={`rail-${i}`}>
-            <polygon points={`${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y} ${p4.x},${p4.y}`}
-              fill="#D9D3C4" opacity="0.5" />
-            <line x1={aa.x} y1={aa.y} x2={bb.x} y2={bb.y} stroke="#1A1A1A" strokeWidth="0.4" />
-            <line x1={cc.x} y1={cc.y} x2={dd.x} y2={dd.y} stroke="#1A1A1A" strokeWidth="0.4" />
-          </g>
-        );
-      })}
-      {/* Quais */}
-      {renderBlock(Q1, '#F5F2EB', '#D9D3C4', null, 'q1')}
-      {renderBlock(Q2, '#F5F2EB', '#D9D3C4', null, 'q2')}
-      {/* Train */}
-      {renderTrain()}
-      {/* BV */}
-      {renderBlock(BVol, '#E8E5DD', '#C8C3B5', 'BV', 'bv')}
-      {/* Intermodal */}
-      {renderBlock(VELOS,  '#E5E7EB', '#9CA3AF', 'Vélos', 'velos')}
-      {renderBlock(TCBus,  '#E5E7EB', '#9CA3AF', 'TC', 'tc')}
-      {renderBlock(PARK,   '#EDE8DD', '#D9D3C4', 'Parking', 'park')}
-      {/* Parvis */}
-      {renderBlock(PARV, '#FBEAEC', '#E8C8CD', null, 'parv')}
-      {/* Passerelle */}
-      {renderBlock(FR, '#C8102E', '#9E0B24', null, 'franch')}
-      {/* Arbres */}
-      {renderTree(3,  14, 't1')}
-      {renderTree(92, 14, 't2')}
-      {renderTree(3,  24, 't3')}
-      {renderTree(92, 24, 't4')}
-    </svg>
-  );
-}
 
 function Stamp({ children, color = 'var(--red)' }) {
   return (
@@ -1209,26 +1029,39 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
           <ProgressRing pct={stats.pct} size={48} />
         </div>
 
-        {/* MINI PLAN ISO — mockup 3D simple de la gare */}
-        <div style={{ padding: '0 14px 8px' }}>
-          <div style={{ background: 'var(--white)', border: '1px solid var(--border)', padding: '6px 8px 4px' }}>
-            <StationMap gare={gare} hasBV={hasBV} hasFranch={hasFranch} />
-          </div>
-          {/* Petit récap typologie / sections */}
+        {/* RÉCAP TYPOLOGIE — pas de mini-plan, on évite la complexité visuelle */}
+        <div style={{ padding: '0 14px 10px' }}>
           {(() => {
             const skipped = sections.filter(s => s.skipIf && s.skipIf(gare, visite.data));
             const allSections = SECTIONS.filter(s => !s.synth);
             const activeCount = allSections.filter(s => !(s.skipIf && s.skipIf(gare, visite.data))).length;
             return (
               <div style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-                gap: 12, padding: '6px 4px 0', fontSize: 10.5, color: 'var(--taupe)'
+                background: 'var(--white)', border: '1px solid var(--border)',
+                borderLeft: '3px solid var(--red)', padding: '10px 12px',
+                display: 'flex', flexDirection: 'column', gap: 6
               }}>
-                <span style={{ fontWeight: 500, color: 'var(--ink-soft)' }}>{getTypologie(gare)}</span>
-                <span className="tabular">
-                  {activeCount}/{allSections.length} sections actives
-                  {skipped.length > 0 && <span style={{ color: 'var(--taupe-light)', marginLeft: 6 }}>· skippé : {skipped.map(s => s.short).join(', ')}</span>}
-                </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0, flex: 1 }}>
+                    <span className="kicker" style={{ fontSize: 9, color: 'var(--taupe)', letterSpacing: '0.14em', flexShrink: 0 }}>Typologie</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {getTypologie(gare)}
+                    </span>
+                  </div>
+                  <div style={{ flexShrink: 0 }}>
+                    <span className="tabular" style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>{activeCount}</span>
+                    <span style={{ fontSize: 10.5, color: 'var(--taupe)', marginLeft: 4 }}>/ {allSections.length} sections</span>
+                  </div>
+                </div>
+                {skipped.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, paddingTop: 4,
+                    borderTop: '1px dashed var(--border)', fontSize: 10.5, color: 'var(--ink-soft)' }}>
+                    <span className="kicker" style={{ fontSize: 8.5, color: 'var(--taupe)', letterSpacing: '0.1em', flexShrink: 0 }}>Skippé</span>
+                    <span>{skipped.map(s => s.short).join(' · ')}
+                      <span style={{ color: 'var(--taupe)', fontStyle: 'italic', marginLeft: 4 }}>— sans objet ici</span>
+                    </span>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -1804,13 +1637,6 @@ function OverviewScreen({ gare, visite, onBack, onZone, onExport }) {
           {stats.pct === 100 ? 'Visite complète.' : `Visite en cours · ${stats.pct}%`}
         </h2>
         <div style={{ height: 3, width: 30, background: 'var(--red)', marginBottom: 18 }} />
-
-        {/* Mini-plan iso */}
-        <div style={{ background: 'var(--white)', border: '1px solid var(--border)', padding: '8px 10px', marginBottom: 18 }}>
-          <StationMap gare={gare}
-            hasBV={!!sections.find((s) => s.id === 'bv')}
-            hasFranch={!!sections.find((s) => s.id === 'franch')} />
-        </div>
 
         {/* Section breakdown */}
         <div className="kicker" style={{ color: 'var(--taupe)', fontSize: 10, marginBottom: 10 }}>Décomposition par zone</div>
