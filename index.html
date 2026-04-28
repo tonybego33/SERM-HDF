@@ -495,39 +495,39 @@ const fmtAgo = (ts) => {
 
 
 function StationMap({ gare, hasBV, hasFranch }) {
-  /* Mini-mockup iso 3D simple — éditorial, pas de couches complexes,
-     juste les volumes-clés dans le bon ordre. */
-  const noBV = (gare?.profile === 'halte_simple') || !hasBV;
-  const showFranch = hasFranch && gare?.config !== 'unilaterale' && gare?.quais !== 1;
+  /* Mini-mockup iso 3D simple — un volume = 3 polygones, le tout dans le bon ordre. */
+  const noBV = (gare && gare.profile === 'halte_simple') || !hasBV;
+  const showFranch = hasFranch && gare && gare.config !== 'unilaterale' && gare.quais !== 1;
 
   // Projection iso 30°
   const ISO_X = 0.866, ISO_Y = 0.5;
-  const iso = (x, y, h = 0) => ({
-    x: (x - y) * ISO_X,
-    y: (x + y) * ISO_Y - h
-  });
+  const iso = (x, y, h) => {
+    h = h || 0;
+    return { x: (x - y) * ISO_X, y: (x + y) * ISO_Y - h };
+  };
 
-  // Layout — coordonnées x (sens voie) / y (vers la rue) / h (hauteur)
-  const RAILS_LEN = 95;
+  // Volumes
+  const Q1 = { x: 5, y: 1,   w: 85, d: 2.5, h: 1 };
+  const Q2 = { x: 5, y: 6.5, w: 85, d: 2.5, h: 1 };
+  const BVol     = noBV ? null : { x: 38, y: 13, w: 18, d: 6, h: 5.5 };
+  const VELOS    = { x: 17, y: 13, w: 7,  d: 5, h: 1.8 };
+  const TCBus    = { x: 26, y: 13, w: 9,  d: 5, h: 2.2 };
+  const PARK     = { x: 60, y: 13, w: 26, d: 7, h: 0.6 };
+  const PARV     = { x: 14, y: 21, w: 72, d: 3, h: 0.3 };
+  const FR       = showFranch ? { x: 45, y: 1, w: 4, d: 8, h: 6 } : null;
   const ROUTE_Y = 26;
-  const Q1 = { x: 5, y: 1,   w: 85, d: 2.5, h: 1 };   // quai nord
-  const Q2 = { x: 5, y: 6.5, w: 85, d: 2.5, h: 1 };   // quai sud
-  const BV = noBV ? null : { x: 38, y: 13, w: 18, d: 6, h: 5.5 };
-  const VELOS   = { x: 17, y: 13, w: 7,  d: 5, h: 1.8 };
-  const TC      = { x: 26, y: 13, w: 9,  d: 5, h: 2.2 };
-  const PARKING = { x: 60, y: 13, w: 26, d: 7, h: 0.6 };
-  const PARVIS  = { x: 14, y: 21, w: 72, d: 3, h: 0.3 };
-  const FRANCH  = showFranch ? { x: 45, y: 1, w: 4, d: 8, h: 6 } : null;
+  const RAILS_LEN = 95;
 
-  // ViewBox auto
+  // ViewBox
   const corners = [iso(0, 0, 0), iso(95, 0, 0), iso(0, 30, 0), iso(95, 30, 0), iso(45, 1, 8)];
-  const minX = Math.min(...corners.map(p => p.x)) - 6;
-  const maxX = Math.max(...corners.map(p => p.x)) + 6;
-  const minY = Math.min(...corners.map(p => p.y)) - 8;
-  const maxY = Math.max(...corners.map(p => p.y)) + 6;
+  const minX = Math.min.apply(null, corners.map(p => p.x)) - 6;
+  const maxX = Math.max.apply(null, corners.map(p => p.x)) + 6;
+  const minY = Math.min.apply(null, corners.map(p => p.y)) - 8;
+  const maxY = Math.max.apply(null, corners.map(p => p.y)) + 6;
 
-  // Composant Block — un volume rectangulaire iso avec 3 faces visibles
-  const Block = ({ b, fillTop, fillSide, label }) => {
+  // Renderer pour un volume — retourne 3 <polygon>
+  const renderBlock = (b, fillTop, fillSide, label, key) => {
+    if (!b) return null;
     const A = iso(b.x,        b.y,        b.h);
     const B = iso(b.x + b.w,  b.y,        b.h);
     const C = iso(b.x + b.w,  b.y + b.d,  b.h);
@@ -536,7 +536,7 @@ function StationMap({ gare, hasBV, hasFranch }) {
     const F = iso(b.x + b.w,  b.y + b.d,  0);
     const G = iso(b.x + b.w,  b.y,        0);
     return (
-      <g>
+      <g key={key}>
         <polygon points={`${B.x},${B.y} ${G.x},${G.y} ${F.x},${F.y} ${C.x},${C.y}`}
           fill={fillSide} stroke="#1A1A1A" strokeWidth="0.12" />
         <polygon points={`${C.x},${C.y} ${F.x},${F.y} ${E.x},${E.y} ${D.x},${D.y}`}
@@ -551,65 +551,66 @@ function StationMap({ gare, hasBV, hasFranch }) {
     );
   };
 
-  // Train rouge AREP — version simple mais reconnaissable
-  const Train = () => {
-    const trainW = 16, trainH = 2.2, top = 1.5, base = 0.3;
-    const yMid = 4, yN = yMid - trainH/2, yS = yMid + trainH/2;
-    const xStart = -20, xEnd = 115;
-    const dx = iso(xEnd, 0, 0).x - iso(xStart, 0, 0).x;
-    const dy = iso(xEnd, 0, 0).y - iso(xStart, 0, 0).y;
-    const sx = iso(xStart, 0, 0).x - iso(0, 0, 0).x;
-    const sy = iso(xStart, 0, 0).y - iso(0, 0, 0).y;
+  // Renderer pour un arbre
+  const renderTree = (tx, ty, key) => {
+    const baseT = iso(tx, ty, 0);
+    const topT = iso(tx, ty, 3);
+    return (
+      <g key={key}>
+        <line x1={baseT.x} y1={baseT.y} x2={topT.x} y2={topT.y} stroke="#5A4A3A" strokeWidth="0.3" />
+        <circle cx={topT.x} cy={topT.y} r="1.6" fill="#7A9970" stroke="#5A7A55" strokeWidth="0.15" />
+      </g>
+    );
+  };
 
-    // Corps
-    const A = iso(0, yN, top), B = iso(trainW, yN, top);
-    const C = iso(trainW, yS, top), D = iso(0, yS, top);
-    const E = iso(0, yS, base), F = iso(trainW, yS, base);
-    // Cabine avant inclinée
-    const cA = iso(trainW, yN, top - 0.2);
-    const cB = iso(trainW + 1.4, yMid, top - 0.5);
-    const cC = iso(trainW, yS, top - 0.2);
-    const cD = iso(trainW, yS, base);
-    const cE = iso(trainW + 1.4, yMid, base);
-
+  // Train rouge AREP simple
+  const renderTrain = () => {
+    const tw = 16, th = 2.2, ttop = 1.5, tbase = 0.3;
+    const yMid = 4, yN = yMid - th/2, yS = yMid + th/2;
+    const xS = -20, xE = 115;
+    const dx = iso(xE, 0, 0).x - iso(xS, 0, 0).x;
+    const dy = iso(xE, 0, 0).y - iso(xS, 0, 0).y;
+    const sx = iso(xS, 0, 0).x - iso(0, 0, 0).x;
+    const sy = iso(xS, 0, 0).y - iso(0, 0, 0).y;
+    const A = iso(0, yN, ttop), B = iso(tw, yN, ttop);
+    const C = iso(tw, yS, ttop), D = iso(0, yS, ttop);
+    const E = iso(0, yS, tbase), F = iso(tw, yS, tbase);
+    const cA = iso(tw, yN, ttop - 0.2);
+    const cB = iso(tw + 1.4, yMid, ttop - 0.5);
+    const cC = iso(tw, yS, ttop - 0.2);
+    const cD = iso(tw, yS, tbase);
+    const cE = iso(tw + 1.4, yMid, tbase);
     return (
       <g pointerEvents="none">
         <animateTransform attributeName="transform" type="translate"
           from={`${sx} ${sy}`} to={`${sx + dx} ${sy + dy}`}
           dur="14s" repeatCount="indefinite" />
-        {/* Face latérale rouge */}
         <polygon points={`${E.x},${E.y} ${F.x},${F.y} ${C.x},${C.y} ${D.x},${D.y}`}
           fill="#C8102E" stroke="#9E0B24" strokeWidth="0.12" />
-        {/* Toit gris */}
         <polygon points={`${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y} ${D.x},${D.y}`}
           fill="#2A2A2A" stroke="#1A1A1A" strokeWidth="0.12" />
-        {/* Bandeau blanc */}
-        {[0.85, 1.4].map((h, i) => {
-          const r1 = iso(0, yS, h), r2 = iso(trainW, yS, h);
-          const r3 = iso(trainW, yS, h - 0.08), r4 = iso(0, yS, h - 0.08);
-          return <polygon key={i} points={`${r1.x},${r1.y} ${r2.x},${r2.y} ${r3.x},${r3.y} ${r4.x},${r4.y}`} fill="#F5F2EB" />;
+        {[0.85, 1.4].map((bh, i) => {
+          const r1 = iso(0, yS, bh), r2 = iso(tw, yS, bh);
+          const r3 = iso(tw, yS, bh - 0.08), r4 = iso(0, yS, bh - 0.08);
+          return <polygon key={`band-${i}`} points={`${r1.x},${r1.y} ${r2.x},${r2.y} ${r3.x},${r3.y} ${r4.x},${r4.y}`} fill="#F5F2EB" />;
         })}
-        {/* Fenêtres */}
         {[1.5, 4.5, 7.5, 10.5, 13.5].map((fx, i) => {
           const w1 = iso(fx, yS, 1.3), w2 = iso(fx + 2, yS, 1.3);
           const w3 = iso(fx + 2, yS, 0.95), w4 = iso(fx, yS, 0.95);
-          return <polygon key={i} points={`${w1.x},${w1.y} ${w2.x},${w2.y} ${w3.x},${w3.y} ${w4.x},${w4.y}`} fill="#0F1F38" />;
+          return <polygon key={`win-${i}`} points={`${w1.x},${w1.y} ${w2.x},${w2.y} ${w3.x},${w3.y} ${w4.x},${w4.y}`} fill="#0F1F38" />;
         })}
-        {/* Cabine avant */}
         <polygon points={`${cA.x},${cA.y} ${cB.x},${cB.y} ${cC.x},${cC.y} ${cD.x},${cD.y} ${cE.x},${cE.y}`}
           fill="#E8475B" stroke="#9E0B24" strokeWidth="0.12" />
         <polygon points={`${cA.x},${cA.y} ${cB.x},${cB.y} ${cC.x},${cC.y}`}
           fill="#2A2A2A" stroke="#1A1A1A" strokeWidth="0.12" />
-        {/* Phare avant */}
-        <circle cx={iso(trainW + 1.2, yMid, 0.55).x} cy={iso(trainW + 1.2, yMid, 0.55).y} r="0.3" fill="#FFD24A">
+        <circle cx={iso(tw + 1.2, yMid, 0.55).x} cy={iso(tw + 1.2, yMid, 0.55).y} r="0.3" fill="#FFD24A">
           <animate attributeName="opacity" values="0.7;1;0.7" dur="1s" repeatCount="indefinite" />
         </circle>
-        {/* Bogies */}
         {[2, 13].map((bx, i) => {
           const w1 = iso(bx + 0.4, yS - 0.2, 0.05);
           const w2 = iso(bx + 1.4, yS - 0.2, 0.05);
           return (
-            <g key={i}>
+            <g key={`bog-${i}`}>
               <circle cx={w1.x} cy={w1.y} r="0.35" fill="#1A1A1A" />
               <circle cx={w2.x} cy={w2.y} r="0.35" fill="#1A1A1A" />
             </g>
@@ -619,77 +620,58 @@ function StationMap({ gare, hasBV, hasFranch }) {
     );
   };
 
-  // Arbres décoratifs
-  const Tree = ({ x, y }) => {
-    const base = iso(x, y, 0);
-    const top = iso(x, y, 3);
-    return (
-      <g>
-        <line x1={base.x} y1={base.y} x2={top.x} y2={top.y} stroke="#5A4A3A" strokeWidth="0.3" />
-        <circle cx={top.x} cy={top.y} r="1.6" fill="#7A9970" stroke="#5A7A55" strokeWidth="0.15" />
-      </g>
-    );
-  };
-
   return (
     <svg viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
       style={{ width: '100%', height: 'auto', display: 'block' }}>
-      {/* SOL */}
+      {/* Sol */}
       <polygon
         points={`${iso(0,0,0).x},${iso(0,0,0).y} ${iso(95,0,0).x},${iso(95,0,0).y} ${iso(95,30,0).x},${iso(95,30,0).y} ${iso(0,30,0).x},${iso(0,30,0).y}`}
         fill="#F5F2EB" stroke="#EDE8DD" strokeWidth="0.3" />
-
-      {/* ROUTE */}
+      {/* Route */}
       <polygon
         points={`${iso(0,ROUTE_Y,0).x},${iso(0,ROUTE_Y,0).y} ${iso(95,ROUTE_Y,0).x},${iso(95,ROUTE_Y,0).y} ${iso(95,30,0).x},${iso(95,30,0).y} ${iso(0,30,0).x},${iso(0,30,0).y}`}
         fill="#EDE8DD" opacity="0.8" />
-      {[...Array(7)].map((_, i) => {
+      {[0,1,2,3,4,5,6].map(i => {
         const cx = 8 + i * 12;
         const p1 = iso(cx, (ROUTE_Y + 30) / 2, 0);
         const p2 = iso(cx + 6, (ROUTE_Y + 30) / 2, 0);
-        return <line key={i} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#BFB9AC" strokeWidth="0.4" />;
+        return <line key={`mk-${i}`} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#BFB9AC" strokeWidth="0.4" />;
       })}
-
-      {/* RAILS — 2 voies */}
+      {/* Rails */}
       {[4, 5].map((vy, i) => {
-        const a = iso(0, vy - 0.6, 0.1), b = iso(RAILS_LEN, vy - 0.6, 0.1);
-        const c = iso(0, vy + 0.6, 0.1), d = iso(RAILS_LEN, vy + 0.6, 0.1);
+        const aa = iso(0, vy - 0.6, 0.1), bb = iso(RAILS_LEN, vy - 0.6, 0.1);
+        const cc = iso(0, vy + 0.6, 0.1), dd = iso(RAILS_LEN, vy + 0.6, 0.1);
+        const p1 = iso(0, vy - 1, 0), p2 = iso(RAILS_LEN, vy - 1, 0);
+        const p3 = iso(RAILS_LEN, vy + 1, 0), p4 = iso(0, vy + 1, 0);
         return (
-          <g key={i}>
-            <polygon points={`${iso(0, vy - 1, 0).x},${iso(0, vy - 1, 0).y} ${iso(RAILS_LEN, vy - 1, 0).x},${iso(RAILS_LEN, vy - 1, 0).y} ${iso(RAILS_LEN, vy + 1, 0).x},${iso(RAILS_LEN, vy + 1, 0).y} ${iso(0, vy + 1, 0).x},${iso(0, vy + 1, 0).y}`}
+          <g key={`rail-${i}`}>
+            <polygon points={`${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y} ${p4.x},${p4.y}`}
               fill="#D9D3C4" opacity="0.5" />
-            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#1A1A1A" strokeWidth="0.4" />
-            <line x1={c.x} y1={c.y} x2={d.x} y2={d.y} stroke="#1A1A1A" strokeWidth="0.4" />
+            <line x1={aa.x} y1={aa.y} x2={bb.x} y2={bb.y} stroke="#1A1A1A" strokeWidth="0.4" />
+            <line x1={cc.x} y1={cc.y} x2={dd.x} y2={dd.y} stroke="#1A1A1A" strokeWidth="0.4" />
           </g>
         );
       })}
-
-      {/* QUAIS — derrière le BV */}
-      <Block b={Q1} fillTop="#F5F2EB" fillSide="#D9D3C4" />
-      <Block b={Q2} fillTop="#F5F2EB" fillSide="#D9D3C4" />
-
-      {/* TRAIN sur la voie nord */}
-      <Train />
-
-      {/* BV — devant les quais */}
-      {BV && <Block b={BV} fillTop="#E8E5DD" fillSide="#C8C3B5" label="BV" />}
-
-      {/* INTERMODALITÉ */}
-      <Block b={VELOS}   fillTop="#E5E7EB" fillSide="#9CA3AF" label="Vélos" />
-      <Block b={TC}      fillTop="#E5E7EB" fillSide="#9CA3AF" label="TC" />
-      <Block b={PARKING} fillTop="#EDE8DD" fillSide="#D9D3C4" label="Parking" />
-
-      {/* PARVIS — fin couche au sol */}
-      <Block b={PARVIS} fillTop="#FBEAEC" fillSide="#E8C8CD" />
-
-      {/* PASSERELLE — par-dessus tout */}
-      {FRANCH && <Block b={FRANCH} fillTop="#C8102E" fillSide="#9E0B24" />}
-
-      {/* ARBRES */}
-      <Tree x={3} y={14} />
-      <Tree x={92} y={14} />
-      <Tree x={3} y={24} />
-      <Tree x={92} y={24} />
+      {/* Quais */}
+      {renderBlock(Q1, '#F5F2EB', '#D9D3C4', null, 'q1')}
+      {renderBlock(Q2, '#F5F2EB', '#D9D3C4', null, 'q2')}
+      {/* Train */}
+      {renderTrain()}
+      {/* BV */}
+      {renderBlock(BVol, '#E8E5DD', '#C8C3B5', 'BV', 'bv')}
+      {/* Intermodal */}
+      {renderBlock(VELOS,  '#E5E7EB', '#9CA3AF', 'Vélos', 'velos')}
+      {renderBlock(TCBus,  '#E5E7EB', '#9CA3AF', 'TC', 'tc')}
+      {renderBlock(PARK,   '#EDE8DD', '#D9D3C4', 'Parking', 'park')}
+      {/* Parvis */}
+      {renderBlock(PARV, '#FBEAEC', '#E8C8CD', null, 'parv')}
+      {/* Passerelle */}
+      {renderBlock(FR, '#C8102E', '#9E0B24', null, 'franch')}
+      {/* Arbres */}
+      {renderTree(3,  14, 't1')}
+      {renderTree(92, 14, 't2')}
+      {renderTree(3,  24, 't3')}
+      {renderTree(92, 24, 't4')}
     </svg>
   );
 }
