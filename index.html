@@ -653,12 +653,11 @@ function setupRealtimeSync(onChange) {
    par 5-10. Si opts.hd=true, on upload tel quel (archive originale).
    ============================================================ */
 
-// Compresse une image côté navigateur (Canvas API, pas de dépendance)
+// Compresse une image côté navigateur (Canvas API, pas de dépendance).
+// Compresse TOUJOURS (pas de skip taille) pour garantir un poids prévisible.
 async function compressImage(file, opts = {}) {
-  const maxDim = opts.maxDim || 2000;
-  const quality = opts.quality || 0.85;
-  // Si déjà petit (< 500KB) et JPEG, on saute la compression
-  if (file.size < 500 * 1024 && /jpe?g/i.test(file.type)) return file;
+  const maxDim = opts.maxDim || 1600;     // 1600px largement suffisant pour analyse terrain
+  const quality = opts.quality || 0.80;   // JPEG 80% — bon équilibre qualité/poids
 
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -671,16 +670,16 @@ async function compressImage(file, opts = {}) {
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
-      // Fond blanc pour préserver les PNGs transparents en JPEG
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0, width, height);
       canvas.toBlob((blob) => {
+        URL.revokeObjectURL(img.src);
         if (!blob) { resolve(file); return; }
-        // Renomme en .jpg pour cohérence
         const baseName = file.name.replace(/\.\w+$/, '');
         const compressed = new File([blob], `${baseName}.jpg`, { type: 'image/jpeg' });
-        URL.revokeObjectURL(img.src);
+        const ratioPct = Math.round((1 - compressed.size / file.size) * 100);
+        console.log(`📷 Compression: ${(file.size/1024).toFixed(0)} KB → ${(compressed.size/1024).toFixed(0)} KB (-${ratioPct}%)`);
         resolve(compressed);
       }, 'image/jpeg', quality);
     };
@@ -691,6 +690,7 @@ async function compressImage(file, opts = {}) {
 
 async function uploadPhoto(gareName, critId, file, opts = {}) {
   // Compresser par défaut, sauf si opts.hd === true
+  const originalSize = file.size;
   let toUpload = file;
   try {
     if (!opts.hd) toUpload = await compressImage(file);
@@ -702,7 +702,7 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
       const r = new FileReader();
       r.onload = () => resolve({
         url: r.result, name: toUpload.name, local: true,
-        hd: !!opts.hd, size: toUpload.size
+        hd: !!opts.hd, size: toUpload.size, originalSize
       });
       r.onerror = reject;
       r.readAsDataURL(toUpload);
@@ -718,7 +718,10 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
   });
   if (error) throw error;
   const { data } = supa.storage.from('photos').getPublicUrl(path);
-  return { url: data.publicUrl, path, name: toUpload.name, hd: !!opts.hd, size: toUpload.size };
+  return {
+    url: data.publicUrl, path, name: toUpload.name,
+    hd: !!opts.hd, size: toUpload.size, originalSize
+  };
 }
 
 async function deletePhoto(photo) {
@@ -2393,7 +2396,11 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
         const photo = await uploadPhoto(gareName, c.id, file, { hd: hdMode });
         next = [...next, photo];
         onSetPhotos(next);
-        if (onToast) onToast(hdMode ? 'Photo HD ajoutée ✓' : 'Photo ajoutée ✓', 'success');
+        const fmtSize = (b) => b > 1024*1024 ? `${(b/1024/1024).toFixed(1)} MB` : `${Math.round(b/1024)} KB`;
+        const msg = hdMode
+          ? `Photo HD ajoutée · ${fmtSize(photo.size)} ✓`
+          : `Photo ajoutée · ${fmtSize(photo.originalSize)} → ${fmtSize(photo.size)} ✓`;
+        if (onToast) onToast(msg, 'success');
       } catch (err) {
         console.warn('Upload error:', err);
         if (onToast) onToast('⚠ Échec upload', 'error');
