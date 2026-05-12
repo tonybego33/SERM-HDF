@@ -938,6 +938,8 @@ const getNote = (raw) => (raw && typeof raw === 'object' && !Array.isArray(raw))
 const getPhotos = (raw) => (raw && typeof raw === 'object' && !Array.isArray(raw)) ? (raw.photos || []) : [];
 
 const isFilled = (c, raw) => {
+  // Cas spécial : N/A (non applicable / ne sait pas) compte comme rempli
+  if (raw && typeof raw === 'object' && raw.na === true) return true;
   const v = getVal(raw);
   if (v === undefined || v === null || v === '') return false;
   // Multi-select : rempli si ≥ 1 élément
@@ -1916,6 +1918,10 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
     [gare, visite.data, gridRev]
   );
   const [activeId, setActiveId] = useState(sections[0].id);
+  // ID du critère actif (déplié). Les autres critères répondus sont repliés.
+  const [activeCritId, setActiveCritId] = useState(null);
+  // Reset l'actif quand on change d'onglet
+  useEffect(() => { setActiveCritId(null); }, [activeId]);
   // If the active section becomes hidden (e.g. user marked BV as Absent), fall back to first
   useEffect(() => {
     if (!sections.find((s) => s.id === activeId)) {
@@ -1945,11 +1951,21 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
     } else {
       next = val;
     }
+    // Toute vraie valeur retire le flag N/A
+    if (next && typeof next === 'object' && !Array.isArray(next)) delete next.na;
     onUpdate({ ...visite, data: { ...visite.data, [cid]: next }, updated: Date.now() });
   };
   const clearVal = (cid) => {
     const d = { ...visite.data };delete d[cid];
     onUpdate({ ...visite, data: d, updated: Date.now() });
+  };
+  /* Marque le critère comme N/A (Non Applicable / Ne Sait Pas)
+     → compte comme rempli dans la complétion, mais sans valeur */
+  const setNA = (cid) => {
+    const cur = visite.data[cid];
+    const obj = (cur && typeof cur === 'object' && !Array.isArray(cur)) ? cur : {};
+    // On garde note et photos s'il y en a, et on ajoute na: true
+    onUpdate({ ...visite, data: { ...visite.data, [cid]: { ...obj, na: true } }, updated: Date.now() });
   };
   /* Update note (always promotes data[id] to object form) */
   const setNote = (cid, note) => {
@@ -2176,18 +2192,28 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
           </div>
           }
 
-          {/* SECTION HEADER */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 18 }}>
+          {/* SECTION HEADER — sticky pour rester visible au scroll */}
+          <div style={{
+            position: 'sticky',
+            top: editMode ? 48 : 0,
+            zIndex: 4,
+            background: editMode ? '#FFF6F0' : (activeSection.bureau ? '#F5F7F9' : 'var(--white)'),
+            margin: '0 -18px 18px',
+            padding: '12px 18px 12px',
+            borderBottom: '1px solid var(--border)',
+            display: 'flex', alignItems: 'center', gap: 14
+          }}>
             <div className="tabular" style={{
-              fontSize: 36, fontWeight: 700, lineHeight: 0.9,
+              fontSize: 28, fontWeight: 700, lineHeight: 0.9,
               color: activeSection.bureau ? 'var(--bureau)' : 'var(--red)',
-              fontFamily: 'var(--font-display)', letterSpacing: '-0.04em'
+              fontFamily: 'var(--font-display)', letterSpacing: '-0.04em', flexShrink: 0
             }}>{String(Math.floor(activeSection.n)).padStart(2, '0')}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <h3 style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.1, letterSpacing: '-0.015em' }}>{activeSection.title}</h3>
-              <div style={{ fontSize: 11.5, color: 'var(--taupe)', marginTop: 3 }}>{activeSection.subtitle}</div>
+              <h3 style={{ fontSize: 15.5, fontWeight: 600, lineHeight: 1.1, letterSpacing: '-0.015em' }}>{activeSection.title}</h3>
+              <div style={{ fontSize: 10.5, color: 'var(--taupe)', marginTop: 1,
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeSection.subtitle}</div>
               {editMode &&
-              <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button onClick={() => onEditSection(activeSection.id)} style={{
                   fontSize: 11, padding: '4px 10px', background: 'var(--white)',
                   border: '1px solid var(--border)', borderRadius: 2, color: 'var(--ink)'
@@ -2219,7 +2245,7 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
               <div style={{ fontSize: 9.5, color: 'var(--taupe)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>relevés</div>
             </div>
           </div>
-          <div style={{ height: 1.5, background: 'var(--ink)', width: 30, marginBottom: 18 }} />
+          {/* trait séparateur retiré : le header sticky a sa propre borderBottom */}
 
           {/* Bouton next-section compact en haut — pour ne pas avoir à scroller */}
           {activeIdx < sections.length - 1 &&
@@ -2284,6 +2310,9 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
                 onSetNote={(n) => setNote(c.id, n)}
                 onSetPhotos={(p) => setPhotos(c.id, p)}
                 onClear={() => clearVal(c.id)}
+                onSetNA={() => setNA(c.id)}
+                isActive={activeCritId === c.id}
+                onActivate={() => setActiveCritId(c.id)}
                 onToast={onToast} />
             </div>
             )}
@@ -2359,7 +2388,7 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
 /* ============================================================
    CRITERION
    ============================================================ */
-function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear, onToast, locked }) {
+function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear, onSetNA, onToast, locked, isActive, onActivate }) {
   // Sub-head : juste un séparateur visuel dans une section (PMR, Synthèse)
   if (c.type === 'subhead') {
     return (
@@ -2380,8 +2409,10 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
   const note = getNote(raw);
   const photos = getPhotos(raw);
   const filled = isFilled(c, raw);
-  const hasExtras = !!note;
-  const [showExtras, setShowExtras] = useState(hasExtras || c.type === 'text');
+  const isNA = raw && typeof raw === 'object' && raw.na === true;
+  // Repli auto : si la question est répondue (ou N/A) ET qu'elle n'est pas active, on affiche compact
+  const collapsed = filled && !isActive;
+  // Note libre toujours ouverte (sauf si en mode collapsed)
   const [uploading, setUploading] = useState(false);
   const [hdMode, setHdMode] = useState(false);
   const cameraInputRef = useRef(null);
@@ -2426,8 +2457,70 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
 
   const photoCount = photos.length;
 
+  // Helper : résumer la valeur en une ligne pour le mode compact
+  const summarize = () => {
+    if (isNA) return '⊘ Non applicable';
+    if (Array.isArray(value)) return value.length ? value.join(', ') : '—';
+    if (value && typeof value === 'object') {
+      const parts = [];
+      if (value.presence === 'yes') parts.push('Présent');
+      if (value.presence === 'no') parts.push('Absent');
+      if (value.nb != null && value.nb !== '' && value.nb !== 0) parts.push(`${value.nb}`);
+      if (value.etat != null) {
+        const labelsEtat = ['N/A', 'Mauvais', 'Moyen', 'Bon'];
+        parts.push(labelsEtat[Math.round(value.etat * 3)] || '');
+      }
+      return parts.filter(Boolean).join(' · ') || '—';
+    }
+    if (c.type === 'rating' && c.labels && typeof value === 'number') return c.labels[value] || `Note ${value}`;
+    if (c.type === 'presence') return value === 'Présent' ? 'Présent' : value === 'Absent' ? 'Absent' : String(value);
+    if (typeof value === 'boolean') return value ? 'Oui' : 'Non';
+    return value != null ? String(value) : '—';
+  };
+
+  // RENDU COMPACT — pour les questions répondues non actives ou N/A
+  if ((collapsed || isNA) && !locked) {
+    return (
+      <div onClick={onActivate} style={{
+        borderLeft: `3px solid ${isNA ? 'var(--taupe-light)' : 'var(--green-soft)'}`,
+        paddingLeft: 12, paddingTop: 7, paddingBottom: 7,
+        cursor: 'pointer', position: 'relative',
+        background: isNA ? 'var(--paper-deep)' : 'transparent',
+        opacity: isNA ? 0.75 : 1,
+        transition: 'background 0.15s'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.25,
+              color: isNA ? 'var(--taupe)' : 'var(--ink)',
+              textDecoration: isNA ? 'line-through' : 'none' }}>{c.label}</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2,
+              display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 600 }}>{summarize()}</span>
+              {note && <span style={{ fontSize: 10.5, color: 'var(--taupe)',
+                background: 'var(--paper-deep)', padding: '1px 6px', borderRadius: 99 }}>
+                📝 {note.length > 20 ? note.slice(0,20)+'…' : note}
+              </span>}
+              {photoCount > 0 && <span style={{ fontSize: 10.5, color: 'var(--taupe)',
+                background: 'var(--paper-deep)', padding: '1px 6px', borderRadius: 99 }}>
+                📷 {photoCount}
+              </span>}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
+            {isNA && <button onClick={(e) => { e.stopPropagation(); onClear(); }} title="Retirer N/A" style={{
+              fontSize: 10, color: 'var(--taupe)', padding: '3px 8px',
+              border: '1px solid var(--border)', borderRadius: 2
+            }}>↺</button>}
+            <span style={{ fontSize: 11, color: 'var(--taupe)', padding: '2px 4px' }}>✎</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div style={{
+    <div onClick={onActivate} style={{
       borderLeft: `3px solid ${filled ? 'var(--green-soft)' : 'var(--border)'}`,
       paddingLeft: 12, paddingTop: 6, paddingBottom: 6,
       transition: 'border-color 0.2s',
@@ -2554,29 +2647,30 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
         <CompositePNE value={compVal} onSet={setComp} />
       }
 
-      {/* NOTE — repliable (sauf pour type 'text' où elle est toujours ouverte) */}
-      {c.type !== 'text' &&
-      <button onClick={() => setShowExtras((s) => !s)} style={{
-        marginTop: 8, fontSize: 11, color: hasExtras ? 'var(--ink)' : 'var(--taupe)',
-        display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 0',
-        fontWeight: hasExtras ? 600 : 400
-      }}>
-        {showExtras ? '−' : '+'} note libre
-        {note && <span style={{ fontSize: 10, color: 'var(--taupe)' }}>· {note.length>30 ? note.slice(0,30)+'…' : note}</span>}
-      </button>
-      }
-      {showExtras && !locked &&
-      <div style={{ marginTop: c.type === 'text' ? 0 : 6 }}>
-        <textarea placeholder={c.type === 'text' ? "Saisir le texte…" : "Précision, contexte ou observation libre…"}
+      {/* NOTE — toujours ouverte (sauf si locked / N/A actif) */}
+      {!locked && !isNA &&
+      <div style={{ marginTop: c.type === 'text' ? 0 : 8 }}>
+        <textarea placeholder={c.type === 'text' ? "Saisir le texte…" : "Note libre (précision, contexte, observation…)"}
           rows={c.type === 'text' ? 3 : 2}
           value={note}
           onChange={(e) => onSetNote(e.target.value)}
+          onFocus={onActivate}
           style={{
             width: '100%', padding: '8px 10px', fontSize: 12.5, fontFamily: 'inherit',
             border: '1px solid var(--border)', borderRadius: 2, background: 'var(--paper-light)',
-            resize: 'vertical', outline: 'none', minHeight: c.type === 'text' ? 72 : 48, lineHeight: 1.4
+            resize: 'vertical', outline: 'none', minHeight: c.type === 'text' ? 72 : 40, lineHeight: 1.4
           }} />
       </div>
+      }
+
+      {/* BOUTON N/A — toujours dispo, séparé en bas */}
+      {!locked && onSetNA && !isNA &&
+      <button onClick={onSetNA} style={{
+        marginTop: 10, fontSize: 10.5, color: 'var(--taupe)',
+        padding: '4px 10px', border: '1px dashed var(--border)', borderRadius: 99,
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        fontWeight: 500
+      }}>⊘ Non applicable / Ne sait pas</button>
       }
     </div>);
 
@@ -3477,7 +3571,26 @@ function App() {
 
   // Real-time sync : refresh when teammates push changes
   useEffect(() => {
-    const teardownVis = setupRealtimeSync((fresh) => setAll(fresh));
+    const teardownVis = setupRealtimeSync((fresh) => {
+      setAll((prev) => {
+        // Merge intelligent : pour les gares qu'on est en train d'éditer
+        // (push pending) ou qu'on vient de pousher (recently), on garde
+        // notre version locale pour éviter d'écraser ce que l'utilisateur
+        // est en train de taper.
+        const merged = { ...fresh };
+        Object.keys(pendingPushes.current).forEach(gn => {
+          if (prev[gn]) merged[gn] = prev[gn];
+        });
+        Object.keys(recentlyPushed.current).forEach(gn => {
+          // Si notre version locale est plus récente que ce qui revient
+          // du serveur, on garde la nôtre
+          if (prev[gn] && (!fresh[gn] || prev[gn].updated >= fresh[gn].updated)) {
+            merged[gn] = prev[gn];
+          }
+        });
+        return merged;
+      });
+    });
     const teardownGri = setupGrilleRealtime(() => bumpGrid());
     return () => { teardownVis(); teardownGri(); };
   }, [bumpGrid]);
@@ -3574,11 +3687,34 @@ function App() {
     setRoute({ name: 'form', gareName });
   };
 
+  /* ============================================================
+     RACE CONDITION FIX — debounce des pushes + filtrage des échos
+     ============================================================
+     Problème résolu : taper "Quai non présent" pendant que Supabase
+     renvoie l'écho de notre propre push écrase ce qu'on est en train
+     de taper. La solution : (1) debounce le push de 800ms, (2) garder
+     une trace de nos pushes en cours pour les ignorer au retour realtime.
+     ============================================================ */
+  const pendingPushes = useRef({});  // gareName -> timeoutId (push en attente)
+  const recentlyPushed = useRef({}); // gareName -> ts (push récent à ignorer au retour)
+
+  const debouncedPush = useCallback((visite) => {
+    const gn = visite.gare;
+    if (pendingPushes.current[gn]) clearTimeout(pendingPushes.current[gn]);
+    pendingPushes.current[gn] = setTimeout(async () => {
+      delete pendingPushes.current[gn];
+      recentlyPushed.current[gn] = Date.now();
+      try { await pushVisiteToSupa(visite); } catch (e) { console.warn('Push failed:', e); }
+      // Garde la trace 4 secondes pour ignorer le retour realtime de notre propre push
+      setTimeout(() => { delete recentlyPushed.current[gn]; }, 4000);
+    }, 800);
+  }, []);
+
   const updateVisite = (v) => {
     // Le dernier modificateur devient l'auteur affiché
     const updated = { ...v, auteur: auteur };
     setAll((a) => ({ ...a, [v.gare]: updated }));
-    pushVisiteToSupa(updated);
+    debouncedPush(updated);
   };
 
   const deleteVisite = async (gareName) => {
