@@ -219,16 +219,18 @@ const getTypologie = (gare) => {
 
 /* ============================================================
    SECTIONS — grille refondue en mode RECENSEMENT
-   "Absent" est une réponse explicite et claire partout où c'est pertinent.
-   Les sections peuvent se masquer dynamiquement selon les réponses
-   de la section Caractérisation (skipIf reçoit gare ET data).
+   ⚠ DEVENUE MUTABLE : peut être remplacée par la config Supabase
+   Les sections "système" (avec skipIf ou clé fonctionnelle)
+   ont system: true → leur SECTION ne peut pas être supprimée,
+   mais leurs CRITÈRES restent éditables/supprimables/extensibles.
+   Les nouveaux onglets créés par les users sont 100% supprimables.
    ============================================================ */
-const SECTIONS = [
+let SECTIONS = [
 
 /* ============================================================
    1. BUREAU — pré-rempli Flux/SIG (READ-ONLY tant que pas branché)
    ============================================================ */
-{ id: 'bureau', n: 0, title: 'À préparer au bureau', short: 'Bureau', icon: '✎', subtitle: 'Pré-rempli depuis Flux/SIG — verrouillé pour l\'instant', bureau: true, fluxLocked: true, criteria: [
+{ system: true, id: 'bureau', n: 0, title: 'À préparer au bureau', short: 'Bureau', icon: '✎', subtitle: 'Pré-rempli depuis Flux/SIG — verrouillé pour l\'instant', bureau: true, fluxLocked: true, criteria: [
   { id: 'desk_densite', label: "Densité population + emplois (rayon 800 m)", type: 'rating', scale: 4, labels: ['Très faible', 'Faible', 'Moyenne', 'Forte'], tag: 'SIG' },
   { id: 'desk_voirie_cycl', label: "% voirie cyclable aménagée (rayon 800 m)", type: 'number', tag: 'SIG' },
   { id: 'desk_continuite_cycl', label: "Continuité cyclable mesurée vers la gare", type: 'rating', scale: 4, labels: ['Absente', 'Mauvaise', 'Moyenne', 'Bonne'], tag: 'SIG' },
@@ -245,7 +247,7 @@ const SECTIONS = [
 /* ============================================================
    2. CARACTÉRISATION — base de la visite (skiplogic en cascade)
    ============================================================ */
-{ id: 'carac', n: 1, title: "Caractérisation à l'arrivée", short: 'Caractér.', icon: '◯', subtitle: 'Confirmer la nature des éléments présents', carac: true, criteria: [
+{ system: true, id: 'carac', n: 1, title: "Caractérisation à l'arrivée", short: 'Caractér.', icon: '◯', subtitle: 'Confirmer la nature des éléments présents', carac: true, criteria: [
   { id: 'carac_quais_nb_acc', label: "Nombre de quais accessibles voyageurs", type: 'count' },
   { id: 'carac_quais_nb_nonacc', label: "Nombre de quais NON accessibles voyageurs", help: "Quais techniques, voies de service…", type: 'count' },
   { id: 'carac_bv_state', label: "État du bâtiment voyageurs", type: 'choice', choices: [
@@ -256,8 +258,7 @@ const SECTIONS = [
     'Absence de BV',
     'Nouvelle station sans BV'
   ]},
-  { id: 'carac_bv_nb_acces', label: "Nombre d'accès au BV", help: "0 si pas de BV", type: 'count' },
-  { id: 'carac_bv_sdap', label: "Accessibilité SDAP", help: "Schéma Directeur d'Accessibilité Programmée", type: 'choice', choices: ['SDAP', 'Non SDAP', 'Inconnu'] },
+  { id: 'carac_bv_sdap', label: "Accessibilité SDAP", help: "Schéma Directeur d'Accessibilité Programmée — en s'appuyant sur l'étude RADAR", type: 'choice', choices: ['SDAP', 'Non SDAP', 'Inconnu'] },
   { id: 'carac_parking_nb', label: "Nombre de parkings distincts", help: "Plusieurs parkings = des feuilles parking séparées plus loin", type: 'count' },
   { id: 'carac_parking_types', label: "Type(s) de stationnement présents", help: "Plusieurs choix possibles — ouvre une feuille par type", type: 'multi', choices: [
     'Stationnement urbain à proximité',
@@ -286,7 +287,7 @@ const SECTIONS = [
 /* ============================================================
    3. PARKING — répété si plusieurs parkings (logique conditionnelle)
    ============================================================ */
-{ id: 'parking', n: 2, title: 'Parking VP & dépose', short: 'Parking', icon: 'P', subtitle: 'Pré-rempli Flux à terme — confirmer terrain', fluxPrefilled: true,
+{ system: true, id: 'parking', n: 2, title: 'Parking VP & dépose', short: 'Parking', icon: 'P', subtitle: 'Pré-rempli Flux à terme — confirmer terrain', fluxPrefilled: true,
   skipIf: (g, d) => {
     const types = getVal(d?.carac_parking_types);
     if (Array.isArray(types) && types.length === 1 && types[0] === 'Pas de parking gare') return true;
@@ -308,7 +309,7 @@ const SECTIONS = [
    3 BIS. PARKING N°2 — apparaît seulement si carac_parking_types
    contient ≥ 2 choix non nuls (ex: urbain + étendu)
    ============================================================ */
-{ id: 'parking2', n: 2.5, title: 'Parking n°2', short: 'Parking 2', icon: 'P²', subtitle: '2e parking détecté — affiner les caractéristiques propres', fluxPrefilled: true,
+{ system: true, id: 'parking2', n: 2.5, title: 'Parking n°2', short: 'Parking 2', icon: 'P²', subtitle: '2e parking détecté — affiner les caractéristiques propres', fluxPrefilled: true,
   skipIf: (g, d) => {
     const types = getVal(d?.carac_parking_types);
     if (!Array.isArray(types)) return true;
@@ -330,11 +331,10 @@ const SECTIONS = [
 /* ============================================================
    4. PARVIS — refonte selon liste Maram
    ============================================================ */
-{ id: 'parvis', n: 3, title: 'Parvis & abords piétons', short: 'Parvis', icon: '⌂', subtitle: "L'espace devant l'entrée — pré-rempli Flux à terme", fluxPrefilled: true, criteria: [
-  { id: 'parvis_qualite', label: "Qualité globale du parvis", type: 'rating', scale: 4, labels: ['Absent', 'Sommaire', 'Standard', 'Qualitatif'] },
+{ system: true, id: 'parvis', n: 3, title: 'Parvis & abords piétons', short: 'Parvis', icon: '⌂', subtitle: "L'espace devant l'entrée — pré-rempli Flux à terme", fluxPrefilled: true, criteria: [
   { id: 'parvis_pieton_continuite', label: "Continuité piétonne vers la gare", type: 'rating', scale: 4, labels: ['Absente', 'Discontinue', 'Moyenne', 'Bonne'] },
   { id: 'parvis_pieton_qualite', label: "Qualité des cheminements", help: "Largeur, revêtement, traversées", type: 'rating', scale: 4, labels: ['Absents', 'Mauvaise', 'Moyenne', 'Bonne'] },
-  { id: 'parvis_eclairage', label: "Éclairage des abords", help: "⚠ Difficile à estimer en journée", type: 'rating', scale: 4, labels: ['Absent', 'Insuffisant', 'Moyen', 'Bon'] },
+  { id: 'parvis_eclairage', label: "Éclairage des abords", help: "⚠ Difficile à juger en journée — relever simplement la présence", type: 'presence' },
   { id: 'parvis_poubelles', label: "Poubelles", type: 'pne' },
   { id: 'parvis_wc', label: "WC publics", type: 'presence' },
   { id: 'parvis_automate_billet', label: "Automates de vente de billets", type: 'count' },
@@ -352,32 +352,56 @@ const SECTIONS = [
   { id: 'parvis_emplois', label: "Nombre d'employés gare visibles", type: 'count' },
   { id: 'parvis_signal_secu_ferro', label: "Signalétique sécurité ferroviaire", type: 'presence' },
   { id: 'parvis_signal_services', label: "Signalétique services gare", type: 'presence' },
-  { id: 'parvis_totem', label: "Totem gare", type: 'presence' }
+  { id: 'parvis_totem', label: "Totem gare", type: 'presence' },
+  { id: 'parvis_qualite', label: "Qualité globale du parvis", help: "Évaluation synthétique après avoir tout relevé", type: 'rating', scale: 4, labels: ['Absent', 'Insuffisant', 'Correct', 'Qualitatif'] }
 ]},
 
 /* ============================================================
    5. VÉLOS — pré-rempli Flux à terme
    ============================================================ */
-{ id: 'velos', n: 4, title: 'Stationnement vélos', short: 'Vélos', icon: '⊙', subtitle: 'Pré-rempli Flux à terme — confirmer terrain', fluxPrefilled: true,
+{ system: true, id: 'velos', n: 4, title: 'Stationnement vélos', short: 'Vélos', icon: '⊙', subtitle: 'Stationnement + cheminement cyclable', fluxPrefilled: true,
   skipIf: (g, d) => {
     const types = getVal(d?.carac_velos_types);
     if (Array.isArray(types) && types.length === 1 && types[0] === 'Absent') return true;
     return false;
   },
   criteria: [
+  // ── Sous-bloc Stationnement
+  { _subhead: 'Stationnement', id: '_velos_h_stat', label: 'Stationnement vélo', type: 'subhead' },
   { id: 'velos_arceaux_couv', label: "Arceaux vélos COUVERTS", type: 'count' },
   { id: 'velos_arceaux_decouv', label: "Arceaux vélos NON couverts", type: 'count' },
+  { id: 'velos_arceaux_nonsecur', label: "Arceaux vélos NON sécurisés", help: "Stationnement libre sans dispositif anti-vol type abri fermé", type: 'count' },
   { id: 'velos_lls', label: "Vélos / trottinettes en libre-service", type: 'presence' },
   { id: 'velos_services', label: "Services vélo (réparation, pompe, gonflage)", type: 'presence' },
   { id: 'velos_recharge_vae', label: "Bornes de recharge VAE", type: 'count' },
+
+  // ── Sous-bloc Confort et continuité
+  { _subhead: 'Confort et continuité', id: '_velos_h_confort', label: 'Confort et continuité', type: 'subhead' },
+  { id: 'velos_continuite', label: "Continuité des pistes / bandes cyclables", type: 'rating', scale: 4, labels: ['Absente', 'Insuffisante', 'Correcte', 'Qualitative'] },
+  { id: 'velos_lisibilite', label: "Lisibilité des itinéraires", help: "Marquage, signalétique, panneaux directionnels", type: 'rating', scale: 4, labels: ['Absente', 'Insuffisante', 'Correcte', 'Qualitative'] },
+  { id: 'velos_largeur_ok', label: "Largeur suffisante", help: "Permet le croisement de 2 cyclistes", type: 'presence' },
+  { id: 'velos_revetement', label: "Qualité du revêtement", type: 'rating', scale: 4, labels: ['Absent', 'Mauvais', 'Moyen', 'Bon'] },
+  { id: 'velos_confort_circul', label: "Confort de circulation global", help: "Ressenti synthèse", type: 'rating', scale: 4, labels: ['Absent', 'Insuffisant', 'Correct', 'Qualitatif'] },
+  { id: 'velos_obstacles_absents', label: "Absence d'obstacles", help: "Poteaux, mobilier, voitures stationnées, etc.", type: 'presence' },
+
+  // ── Sous-bloc Accessibilité gare (depuis l'aménagement cyclable)
+  { _subhead: 'Accessibilité gare', id: '_velos_h_acc', label: 'Accessibilité gare (depuis l\'aménagement vélo)', type: 'subhead' },
+  { id: 'velos_acc_connexion', label: "Connexion directe aux accès gare", type: 'presence' },
+  { id: 'velos_acc_quais_hall', label: "Facilité d'accès aux quais / hall", type: 'rating', scale: 4, labels: ['Absent', 'Insuffisant', 'Correct', 'Qualitatif'] },
+  { id: 'velos_acc_continuite_entrees', label: "Continuité jusqu'aux entrées gare", type: 'rating', scale: 4, labels: ['Absente', 'Insuffisante', 'Correcte', 'Qualitative'] },
+  { id: 'velos_acc_pentes', label: "Gestion des pentes", help: "Rampes douces vs marches/dénivelés brutaux", type: 'rating', scale: 4, labels: ['Absente', 'Insuffisante', 'Correcte', 'Qualitative'] },
+  { id: 'velos_acc_pmr_velo', label: "Accessibilité PMR + vélo combinée", help: "Un cycliste PMR (handivélo, tricycle…) peut-il accéder ?", type: 'presence' },
   { id: 'velos_acc_quais', label: "Possibilité d'amener son vélo aux quais", type: 'presence' },
-  { id: 'velos_etat', label: "État général des aménagements vélo", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] }
+
+  // ── État général en conclusion
+  { _subhead: 'Conclusion', id: '_velos_h_concl', label: 'Conclusion', type: 'subhead' },
+  { id: 'velos_etat', label: "État général des aménagements vélo", type: 'rating', scale: 4, labels: ['Absent', 'Insuffisant', 'Correct', 'Qualitatif'] }
 ]},
 
 /* ============================================================
    6. TC
    ============================================================ */
-{ id: 'tc', n: 5, title: 'Arrêts TC à proximité', short: 'TC', icon: '▭', subtitle: 'Confirmation visuelle des arrêts',
+{ system: true, id: 'tc', n: 5, title: 'Arrêts TC à proximité', short: 'TC', icon: '▭', subtitle: 'Confirmation visuelle des arrêts',
   skipIf: (g, d) => getVal(d?.desk_tc_350) === 'no',
   criteria: [
   { id: 'tc_info_dyn', label: "Écrans d'information dynamique TC", type: 'count' },
@@ -389,12 +413,13 @@ const SECTIONS = [
 /* ============================================================
    7. BV — refonte Maram
    ============================================================ */
-{ id: 'bv', n: 6, title: 'Bâtiment voyageurs', short: 'BV', icon: '◇', subtitle: "Hall, services, équipements",
+{ system: true, id: 'bv', n: 6, title: 'Bâtiment voyageurs', short: 'BV', icon: '◇', subtitle: "Hall, services, équipements",
   skipIf: (g, d) => {
     const state = getVal(d?.carac_bv_state);
     return state === 'Absence de BV' || state === 'Nouvelle station sans BV';
   },
   criteria: [
+  { id: 'bv_nb_acces', label: "Nombre d'accès au BV", help: "0 si pas de BV — déplacé ici suite remarque Maram", type: 'count' },
   { id: 'bv_poubelles', label: "Poubelles", type: 'pne' },
   { id: 'bv_wc', label: "WC publics", type: 'presence' },
   { id: 'bv_fontaine', label: "Fontaine à eau", type: 'presence' },
@@ -417,13 +442,14 @@ const SECTIONS = [
   { id: 'bv_vigipirate', label: "Info Vigipirate", type: 'presence' },
   { id: 'bv_emplois', label: "Nombre d'employés gare visibles", type: 'count' },
   { id: 'bv_signal_secu_ferro', label: "Signalétique sécurité ferroviaire", type: 'presence' },
-  { id: 'bv_signal_services', label: "Signalétique services gare", type: 'presence' }
+  { id: 'bv_signal_services', label: "Signalétique services gare", type: 'presence' },
+  { id: 'bv_etat', label: "État général du BV", help: "Évaluation synthétique en conclusion", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] }
 ]},
 
 /* ============================================================
    8. FRANCHISSEMENT — refonte Maram
    ============================================================ */
-{ id: 'franch', n: 7, title: 'Franchissement des voies', short: 'Franch.', icon: '╫', subtitle: "Passer d'un quai à l'autre",
+{ system: true, id: 'franch', n: 7, title: 'Franchissement des voies', short: 'Franch.', icon: '╫', subtitle: "Passer d'un quai à l'autre",
   skipIf: (g, d) => {
     const types = getVal(d?.carac_franch_type);
     if (Array.isArray(types) && types.length === 1 && types[0] === 'Aucun (1 seul quai)') return true;
@@ -432,28 +458,28 @@ const SECTIONS = [
   criteria: [
   { id: 'franch_secur', label: "Franchissement perçu comme sécurisé", type: 'presence' },
   { id: 'franch_ascenseurs', label: "Ascenseurs", type: 'count' },
-  { id: 'franch_escaliers', label: "Volées d'escaliers", type: 'count' },
+  { id: 'franch_escaliers', label: "Volées d'escaliers", help: "Nombre de volées au total (montée + descente comptées séparément si non symétriques)", type: 'count' },
   { id: 'franch_rampes', label: "Rampes / pentes douces", type: 'presence' },
-  { id: 'franch_eclairage', label: "Éclairage du franchissement", type: 'rating', scale: 4, labels: ['Absent', 'Insuffisant', 'Moyen', 'Bon'] },
-  { id: 'franch_etat', label: "État général", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] },
+  { id: 'franch_eclairage', label: "Éclairage du franchissement", help: "⚠ Difficile à juger en journée — relever simplement la présence", type: 'presence' },
   { id: 'franch_poubelles', label: "Poubelles", type: 'pne' },
   { id: 'franch_ecran_iv_trains', label: "Écrans IV trains", type: 'count' },
   { id: 'franch_ecran_iv_tc', label: "Écrans IV TC", type: 'count' },
   { id: 'franch_valideurs', label: "Valideurs (titres TER)", type: 'pn' },
   { id: 'franch_automate_billet', label: "Automates de vente de billets", type: 'count' },
   { id: 'franch_signal_quais', label: "Signalétique entrée/sortie quais", type: 'presence' },
-  { id: 'franch_signal_intermodal', label: "Signalétique vers autres modes", type: 'presence' }
+  { id: 'franch_signal_intermodal', label: "Signalétique vers autres modes", type: 'presence' },
+  { id: 'franch_etat', label: "État général du franchissement", help: "Évaluation synthétique en conclusion", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] }
 ]},
 
 /* ============================================================
    9. QUAIS — refonte Maram (le gros morceau)
    ============================================================ */
-{ id: 'quais', n: 8, title: 'Quais', short: 'Quais', icon: '═', subtitle: 'Le terminus du parcours', criteria: [
+{ system: true, id: 'quais', n: 8, title: 'Quais', short: 'Quais', icon: '═', subtitle: 'Le terminus du parcours', criteria: [
   { id: 'quai_type', label: "Type de quai dominant", type: 'choice', choices: ['Quai absent / bande de terre', 'Quai bas', 'Quai haut', 'Mixte (haut et bas)'] },
   { id: 'quai_etat', label: "État général des quais", type: 'rating', scale: 4, labels: ['Absent', 'Mauvais', 'Moyen', 'Bon'] },
-  { id: 'quai_longueur_ok', label: "Longueur adaptée au matériel roulant", type: 'presence' },
+  { id: 'quai_longueur_ok', label: "Longueur adaptée au matériel roulant", help: "À évaluer uniquement si train présent au moment de la visite. Sinon laisser vide.", type: 'presence' },
   { id: 'quai_candelabres', label: "Candélabres (mâts d'éclairage)", type: 'count' },
-  { id: 'quai_eclairage', label: "Qualité de l'éclairage des quais", type: 'rating', scale: 4, labels: ['Absent', 'Insuffisant', 'Moyen', 'Bon'] },
+  { id: 'quai_eclairage', label: "Éclairage des quais", help: "⚠ Difficile à juger en journée — relever simplement la présence", type: 'presence' },
   { id: 'quai_poubelles', label: "Poubelles", type: 'pne' },
   { id: 'quai_poubelles_tri', label: "Tri sélectif (tri-flux)", type: 'presence' },
   { id: 'quai_abris', label: "Abris quais", type: 'pne' },
@@ -480,7 +506,7 @@ const SECTIONS = [
 /* ============================================================
    10. ACCESSIBILITÉ PMR — nouvelle section (4 sous-blocs)
    ============================================================ */
-{ id: 'pmr', n: 9, title: 'Accessibilité PMR', short: 'PMR', icon: '♿', subtitle: "Tous handicaps — moteur, visuel, auditif, intellectuel/psychique", criteria: [
+{ system: true, id: 'pmr', n: 9, title: 'Accessibilité PMR', short: 'PMR', icon: '♿', subtitle: "Tous handicaps — moteur, visuel, auditif, intellectuel/psychique", criteria: [
   // ── Sous-bloc Moteur
   { _subhead: 'Handicap moteur', id: '_pmr_h_moteur', label: 'Handicap moteur', type: 'subhead' },
   { id: 'pmr_m_rampe', label: "Rampe PMR", type: 'presence' },
@@ -520,7 +546,7 @@ const SECTIONS = [
 /* ============================================================
    11. SYNTHÈSE — typologies institutionnelles + ressenti
    ============================================================ */
-{ id: 'synthese', n: 10, title: 'Synthèse & classifications', short: 'Synthèse', icon: '!', subtitle: 'Ressenti global + classifications institutionnelles', synth: true, criteria: [
+{ system: true, id: 'synthese', n: 10, title: 'Synthèse & classifications', short: 'Synthèse', icon: '!', subtitle: 'Ressenti global + classifications institutionnelles', synth: true, criteria: [
   { _subhead: 'Classifications', id: '_synth_h_classif', label: 'Classifications institutionnelles', type: 'subhead' },
   { id: 'synth_typo_sraddet', label: "Typologie SRADDET", type: 'choice', choices: [
     '1- Pôle régional',
@@ -651,6 +677,182 @@ async function deletePhoto(photo) {
 
 const seedDemo = () => { /* no-op: real data lives in Supabase */ };
 seedDemo();
+
+/* ============================================================
+   GRILLE CONFIG — chargement et persistance de la grille
+   ============================================================
+   Architecture :
+   - SECTIONS (let) = source de vérité courante (modifiée à chaud)
+   - DEFAULT_SECTIONS = snapshot des sections initiales en dur (fallback)
+   - SYSTEM_SKIPIF = map id -> skipIf function (les fonctions ne sont
+     pas sérialisables en JSON, donc on les rétablit au pull)
+   - grille_config table Supabase : 1 row id='active', sections JSONB
+   ============================================================ */
+
+// Snapshot des sections initiales — fallback si Supabase indispo
+const DEFAULT_SECTIONS = SECTIONS.map(s => ({...s, criteria: [...(s.criteria||[])]}));
+
+// Map des skipIf indexée par id — pour réhydrater au pull
+const SYSTEM_SKIPIF = {};
+DEFAULT_SECTIONS.forEach(s => { if (s.skipIf) SYSTEM_SKIPIF[s.id] = s.skipIf; });
+
+// Sérialiser : retirer les fonctions skipIf avant push (JSON ne les gère pas)
+function serializeSections(secs) {
+  return secs.map(s => {
+    const clean = {...s};
+    delete clean.skipIf;
+    return clean;
+  });
+}
+
+// Désérialiser : rétablir skipIf pour les sections système
+function hydrateSections(secs) {
+  return secs.map(s => {
+    if (SYSTEM_SKIPIF[s.id]) return {...s, skipIf: SYSTEM_SKIPIF[s.id]};
+    return s;
+  });
+}
+
+// Push la grille courante vers Supabase
+async function pushGrilleToSupa(by) {
+  if (!supa) return;
+  try {
+    const { error } = await supa.from('grille_config').upsert({
+      id: 'active',
+      sections: serializeSections(SECTIONS),
+      updated_at: new Date().toISOString(),
+      updated_by: by || 'Anonyme'
+    });
+    if (error) console.warn('Grille push:', error);
+  } catch (e) { console.warn('Grille push failed:', e); }
+}
+
+// Pull la grille depuis Supabase. Si vide, on push la grille par défaut.
+async function pullGrilleFromSupa() {
+  if (!supa) return null;
+  try {
+    const { data, error } = await supa.from('grille_config').select('*').eq('id', 'active').maybeSingle();
+    if (error) { console.warn('Grille pull:', error); return null; }
+    if (!data || !data.sections) {
+      // Première fois : on initialise la table avec la grille par défaut
+      await pushGrilleToSupa('init');
+      return null;
+    }
+    SECTIONS = hydrateSections(data.sections);
+    return SECTIONS;
+  } catch (e) { console.warn('Grille pull failed:', e); return null; }
+}
+
+// Realtime sync — quand quelqu'un d'autre modifie la grille
+function setupGrilleRealtime(onChange) {
+  if (!supa) return () => {};
+  try {
+    const channel = supa.channel('grille_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'grille_config' }, async () => {
+        const fresh = await pullGrilleFromSupa();
+        if (fresh) onChange(fresh);
+      })
+      .subscribe();
+    return () => { try { supa.removeChannel(channel); } catch (e) {} };
+  } catch (e) { console.warn('Grille realtime failed:', e); return () => {}; }
+}
+
+/* === Manipulation de la grille — utilitaires CRUD === */
+
+// Génère un ID unique pour un nouveau critère ou onglet
+function genId(prefix) {
+  const slug = prefix.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 20);
+  return `custom_${slug}_${Date.now().toString(36)}`;
+}
+
+// Ajouter un critère à la fin d'une section
+function gridAddCriterion(sectionId, criterion, by) {
+  const idx = SECTIONS.findIndex(s => s.id === sectionId);
+  if (idx < 0) return false;
+  const newCrit = {
+    ...criterion,
+    id: criterion.id || genId(criterion.label || 'crit'),
+    createdBy: by || 'Anonyme',
+    updatedBy: by || 'Anonyme',
+    updatedAt: Date.now()
+  };
+  SECTIONS[idx] = { ...SECTIONS[idx], criteria: [...(SECTIONS[idx].criteria || []), newCrit] };
+  return newCrit.id;
+}
+
+// Modifier un critère existant (libellé, help, options/labels) — pas l'ID, pas le type
+function gridUpdateCriterion(sectionId, critId, updates, by) {
+  const idx = SECTIONS.findIndex(s => s.id === sectionId);
+  if (idx < 0) return false;
+  const crits = (SECTIONS[idx].criteria || []).map(c =>
+    c.id === critId ? {
+      ...c, ...updates,
+      id: c.id, type: c.type, // protégés
+      createdBy: c.createdBy, // pas écrasé
+      updatedBy: by || 'Anonyme',
+      updatedAt: Date.now()
+    } : c
+  );
+  SECTIONS[idx] = { ...SECTIONS[idx], criteria: crits };
+  return true;
+}
+
+// Supprimer un critère (soft : on le retire de la grille, mais les
+// réponses déjà saisies restent dans visites.data, récupérables si
+// on remet la question avec le même ID)
+function gridDeleteCriterion(sectionId, critId) {
+  const idx = SECTIONS.findIndex(s => s.id === sectionId);
+  if (idx < 0) return false;
+  const crits = (SECTIONS[idx].criteria || []).filter(c => c.id !== critId);
+  SECTIONS[idx] = { ...SECTIONS[idx], criteria: crits };
+  return true;
+}
+
+// Ajouter un nouvel onglet (non-system)
+function gridAddSection(section, by) {
+  const newSec = {
+    system: false,
+    id: section.id || genId(section.title || section.short || 'onglet'),
+    n: section.n != null ? section.n : (SECTIONS.length),
+    title: section.title || 'Nouvel onglet',
+    short: section.short || (section.title || 'Onglet').slice(0, 8),
+    icon: section.icon || '•',
+    subtitle: section.subtitle || '',
+    criteria: section.criteria || [],
+    createdBy: by || 'Anonyme',
+    updatedBy: by || 'Anonyme',
+    updatedAt: Date.now()
+  };
+  SECTIONS = [...SECTIONS, newSec];
+  return newSec.id;
+}
+
+// Modifier le header d'un onglet (titre, short, icon, subtitle)
+function gridUpdateSection(sectionId, updates, by) {
+  const idx = SECTIONS.findIndex(s => s.id === sectionId);
+  if (idx < 0) return false;
+  const allowed = {};
+  ['title', 'short', 'icon', 'subtitle'].forEach(k => { if (updates[k] !== undefined) allowed[k] = updates[k]; });
+  SECTIONS[idx] = {
+    ...SECTIONS[idx], ...allowed,
+    updatedBy: by || 'Anonyme',
+    updatedAt: Date.now()
+  };
+  return true;
+}
+
+// Supprimer un onglet (interdit pour les sections system)
+function gridDeleteSection(sectionId) {
+  const sec = SECTIONS.find(s => s.id === sectionId);
+  if (!sec || sec.system) return false;
+  SECTIONS = SECTIONS.filter(s => s.id !== sectionId);
+  return true;
+}
+
+// Restaurer la grille par défaut (panic button)
+function gridRestoreDefault() {
+  SECTIONS = DEFAULT_SECTIONS.map(s => ({...s, criteria: [...(s.criteria||[])]}));
+}
 
 /* ============================================================
    HELPERS
@@ -1857,7 +2059,7 @@ function Stamp({ children, color = 'var(--red)' }) {
 /* ============================================================
    HERO ACCUEIL — sobre, sans carte
    ============================================================ */
-function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, totalGares, onPick, onOpen }) {
+function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, totalGares, onPick, onOpen, onExportAll }) {
   const mine = visites.filter(v => v.auteur === auteur);
   const lastMine = mine[0];
   const mineOpen = mine.filter(v => {
@@ -2006,6 +2208,25 @@ function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, to
           </span>
           <span style={{ fontSize: 18, opacity: 0.9, position:'relative' }}>→</span>
         </button>
+
+        {/* CTA secondaire : Export — visible et accessible */}
+        <button onClick={onExportAll} style={{
+          width:'100%', padding:'12px 18px', marginTop: 10,
+          background:'var(--ink)', color:'var(--paper-light)',
+          fontFamily:'var(--font-display)', fontSize: 14, fontWeight: 600,
+          letterSpacing:'0.03em', borderRadius: 2,
+          display:'flex', alignItems:'center', justifyContent:'space-between', gap: 10,
+          border: '1px solid var(--ink)'
+        }}>
+          <span style={{ display:'flex', alignItems:'center', gap: 10 }}>
+            <span style={{ fontSize: 17 }}>⇣</span>
+            <span>Exporter les données</span>
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 500, letterSpacing:'0.12em',
+            textTransform:'uppercase', opacity: 0.7 }}>
+            {visited} visite{visited > 1 ? 's' : ''} · CSV / Excel / JSON
+          </span>
+        </button>
         <style>{`
           @keyframes sermBlink {
             0%, 100% { opacity: 1; }
@@ -2025,7 +2246,7 @@ function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, to
 /* ============================================================
    HOME SCREEN
    ============================================================ */
-function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, syncing }) {
+function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, syncing, editMode, onToggleEdit, onRestoreGrille, gridRev }) {
   const visites = Object.values(all).sort((a, b) => b.updated - a.updated);
   const totalGares = GARES.length;
   const visited = visites.length;
@@ -2069,13 +2290,24 @@ function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, 
           {/* DATELINE */}
           <div style={{ padding: '7px 18px', display: 'flex', justifyContent: 'space-between',
           fontSize: 9.5, color: 'rgba(245,242,235,0.6)', letterSpacing: '0.1em',
-          textTransform: 'uppercase', fontWeight: 500 }}>
+          textTransform: 'uppercase', fontWeight: 500, alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <span>{todayStr}</span>
-            <span style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <span style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button onClick={onToggleEdit} style={{
+                color: editMode ? 'var(--paper-light)' : 'rgba(245,242,235,0.85)',
+                background: editMode ? 'var(--red)' : 'transparent',
+                fontSize: 9.5, letterSpacing: '0.1em',
+                textTransform: 'uppercase', fontWeight: 600,
+                padding: editMode ? '3px 8px' : 0, borderRadius: 2
+              }}>{editMode ? '✓ Édition' : '🛠 Éditer'}</button>
+              {editMode && <button onClick={onRestoreGrille} style={{
+                color: 'rgba(245,242,235,0.6)', fontSize: 9.5, letterSpacing: '0.1em',
+                textTransform: 'uppercase', fontWeight: 600
+              }}>↺ Restaurer</button>}
               <button onClick={onExportAll} style={{
                 color: 'rgba(245,242,235,0.85)', fontSize: 9.5, letterSpacing: '0.1em',
                 textTransform: 'uppercase', fontWeight: 600, padding: 0
-              }}>⇣ Export CSV</button>
+              }}>⇣ Export</button>
               <span>N° {String(visited).padStart(3, '0')} · Vol. I</span>
             </span>
           </div>
@@ -2095,7 +2327,7 @@ function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, 
         <FriendlyHero
           all={all} auteur={auteur} visites={visites}
           fullyDone={fullyDone} inProgress={inProgress} visited={visited} totalGares={totalGares}
-          onPick={onPick} onOpen={onOpen}
+          onPick={onPick} onOpen={onOpen} onExportAll={onExportAll}
         />
 
         <div style={{ padding: '24px 22px 0' }}>
@@ -2577,10 +2809,13 @@ function StationProgress({ gare, visite, activeId }) {
 }
 
 
-function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onToast }) {
+function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onToast,
+                      editMode, onToggleEdit, onEditCrit, onAddCrit, onDeleteCrit,
+                      onEditSection, onAddSection, onDeleteSection, gridRev }) {
   const sections = useMemo(
     () => SECTIONS.filter((s) => !s.skipIf || !s.skipIf(gare, visite.data)),
-    [gare, visite.data]
+    // gridRev force le recalcul quand la grille est modifiée
+    [gare, visite.data, gridRev]
   );
   const [activeId, setActiveId] = useState(sections[0].id);
   // If the active section becomes hidden (e.g. user marked BV as Absent), fall back to first
@@ -2672,6 +2907,13 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
           ← <span className="kicker" style={{ fontSize: 10 }}>Carnet</span>
         </button>
         <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={onToggleEdit} title="Mode édition de la grille" style={{
+            color: editMode ? 'var(--paper-light)' : 'var(--paper)',
+            background: editMode ? 'var(--red)' : 'transparent',
+            fontSize: 11, padding: '5px 10px',
+            border: `1px solid ${editMode ? 'var(--red)' : 'rgba(245,242,235,0.2)'}`,
+            borderRadius: 2, fontWeight: 600
+          }}>{editMode ? '✓ Édition' : '🛠'}</button>
           <button onClick={onOverview} style={{ color: 'var(--paper)', fontSize: 11, padding: '5px 10px',
             border: '1px solid rgba(245,242,235,0.2)', borderRadius: 2,
             display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2751,12 +2993,26 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
               </button>);
 
           })}
+            {editMode &&
+            <button onClick={onAddSection} style={{
+              flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4,
+              padding: '6px 11px', borderRadius: 99,
+              background: 'var(--red-tint)', color: 'var(--red)',
+              border: '1px dashed var(--red)',
+              fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap'
+            }}>+ Onglet</button>
+            }
         </div>
       </div>
 
       {/* SECTION PANEL — full focus */}
       <div id="panel-scroll" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
-      style={{ flex: 1, overflowY: 'auto', background: activeSection.bureau ? '#F5F7F9' : 'var(--white)', minHeight: 0 }}>
+      style={{ flex: 1, overflowY: 'auto',
+        background: editMode ? '#FFF6F0' : (activeSection.bureau ? '#F5F7F9' : 'var(--white)'),
+        minHeight: 0,
+        boxShadow: editMode ? 'inset 0 0 0 3px var(--red)' : 'none',
+        transition: 'background 0.2s, box-shadow 0.2s'
+      }}>
         <div style={{ padding: '18px 18px 100px' }}>
           {activeSection.fluxLocked &&
           <div style={{
@@ -2766,20 +3022,8 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
           }}>
             <span style={{ fontSize: 16, lineHeight: 1, marginTop: 1 }}>🔒</span>
             <div>
-              <strong>Section verrouillée — données pré-remplies par Flux</strong><br/>
-              Ces critères seront alimentés automatiquement à partir de la base Flux/SIG.
+              <strong>Section verrouillée</strong> — données alimentées automatiquement depuis la base Flux.
             </div>
-          </div>
-          }
-          {!activeSection.fluxLocked && activeSection.fluxPrefilled &&
-          <div style={{
-            background: 'var(--paper-deep)', borderLeft: '3px solid var(--bureau)',
-            padding: '10px 12px', fontSize: 12, marginBottom: 16,
-            color: 'var(--ink-soft)', lineHeight: 1.5
-          }}>
-            <strong style={{ color: 'var(--bureau)' }}>ℹ Données Flux à terme</strong> —
-            certains critères seront pré-remplis automatiquement depuis la base Flux.
-            Pour l'instant à confirmer / compléter sur le terrain.
           </div>
           }
           {activeSection.bureau && !activeSection.fluxLocked &&
@@ -2809,6 +3053,31 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
             </div>
           }
 
+          {/* BANDEAU MODE ÉDITION */}
+          {editMode &&
+          <div style={{
+            background: 'var(--red)',
+            color: 'white',
+            padding: '8px 12px', marginBottom: 14,
+            fontSize: 12, fontWeight: 600,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap',
+            position: 'sticky', top: 0, zIndex: 5,
+            margin: '-18px -18px 14px',
+            padding: '10px 18px',
+            boxShadow: '0 2px 8px rgba(200,16,46,0.25)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ background: 'white', color: 'var(--red)', padding: '2px 8px',
+                fontSize: 10, fontWeight: 800, letterSpacing: '0.12em', borderRadius: 2 }}>● MODE ÉDITION</span>
+              <span style={{ opacity: 0.95, fontSize: 11.5 }}>tes modifs sont visibles par tous</span>
+            </div>
+            <button onClick={onToggleEdit} style={{
+              fontSize: 11, color: 'var(--red)', fontWeight: 700,
+              background: 'white', padding: '4px 10px', borderRadius: 2
+            }}>✓ Terminer</button>
+          </div>
+          }
+
           {/* SECTION HEADER */}
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 18 }}>
             <div className="tabular" style={{
@@ -2819,6 +3088,30 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
             <div style={{ flex: 1, minWidth: 0 }}>
               <h3 style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.1, letterSpacing: '-0.015em' }}>{activeSection.title}</h3>
               <div style={{ fontSize: 11.5, color: 'var(--taupe)', marginTop: 3 }}>{activeSection.subtitle}</div>
+              {editMode &&
+              <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button onClick={() => onEditSection(activeSection.id)} style={{
+                  fontSize: 11, padding: '4px 10px', background: 'var(--white)',
+                  border: '1px solid var(--border)', borderRadius: 2, color: 'var(--ink)'
+                }}>✏ Modifier l'onglet</button>
+                {!activeSection.system &&
+                <button onClick={() => onDeleteSection(activeSection.id)} style={{
+                  fontSize: 11, padding: '4px 10px', background: 'var(--white)',
+                  border: '1px solid var(--red)', borderRadius: 2, color: 'var(--red)'
+                }}>✕ Supprimer l'onglet</button>
+                }
+                {activeSection.system &&
+                <span style={{ fontSize: 10, color: 'var(--taupe)', padding: '4px 8px',
+                  background: 'var(--paper-deep)', borderRadius: 2,
+                  display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  🔒 onglet système
+                </span>}
+                {activeSection.updatedBy && <span style={{
+                  fontSize: 10, color: 'var(--taupe)', padding: '4px 8px',
+                  background: 'var(--paper-deep)', borderRadius: 2
+                }}>dernière modif · {activeSection.updatedBy}{activeSection.updatedAt ? ` · ${fmtAgo(activeSection.updatedAt)}` : ''}</span>}
+              </div>
+              }
             </div>
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
               <div className="tabular" style={{ fontSize: 13, fontWeight: 700,
@@ -2849,15 +3142,64 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
           {/* CRITERIA */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {activeSection.criteria.map((c) =>
-            <Criterion key={c.id} c={c} raw={visite.data[c.id]}
-              gareName={gare.nom}
-              locked={activeSection.fluxLocked}
-              onSetVal={(v) => setVal(c.id, v)}
-              onSetNote={(n) => setNote(c.id, n)}
-              onSetPhotos={(p) => setPhotos(c.id, p)}
-              onClear={() => clearVal(c.id)}
-              onToast={onToast} />
+            <div key={c.id} style={editMode && c.type !== 'subhead' ? {
+              border: '1px dashed var(--border)', padding: '6px 6px 4px',
+              borderRadius: 4, background: 'rgba(255,255,255,0.4)'
+            } : null}>
+              {editMode && c.type !== 'subhead' &&
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <div style={{ fontSize: 10, color: 'var(--taupe)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  {c.createdBy && <span style={{
+                    background: 'var(--paper-deep)', padding: '2px 6px', borderRadius: 99,
+                    fontWeight: 500, color: 'var(--ink-soft)'
+                  }}>+ {c.createdBy}</span>}
+                  {c.updatedBy && c.updatedBy !== c.createdBy && <span style={{
+                    background: 'var(--amber-tint)', padding: '2px 6px', borderRadius: 99,
+                    fontWeight: 500, color: 'var(--amber)'
+                  }}>✏ {c.updatedBy}</span>}
+                  {c.updatedAt && <span className="tabular">{fmtAgo(c.updatedAt)}</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => onEditCrit(activeSection.id, c.id)} style={{
+                    fontSize: 10.5, padding: '3px 8px', background: 'var(--white)',
+                    border: '1px solid var(--border)', borderRadius: 2, color: 'var(--ink-soft)'
+                  }}>✏ Modifier</button>
+                  <button onClick={() => onDeleteCrit(activeSection.id, c.id)} style={{
+                    fontSize: 10.5, padding: '3px 8px', background: 'var(--white)',
+                    border: '1px solid var(--red-soft)', borderRadius: 2, color: 'var(--red)'
+                  }}>✕ Supprimer</button>
+                </div>
+              </div>
+              }
+              {editMode && c.type === 'subhead' &&
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 0 }}>
+                <button onClick={() => onDeleteCrit(activeSection.id, c.id)} style={{
+                  fontSize: 10, padding: '2px 7px', background: 'transparent',
+                  border: '1px solid var(--border)', borderRadius: 2, color: 'var(--taupe)'
+                }}>✕</button>
+              </div>
+              }
+              <Criterion c={c} raw={visite.data[c.id]}
+                gareName={gare.nom}
+                locked={activeSection.fluxLocked}
+                onSetVal={(v) => setVal(c.id, v)}
+                onSetNote={(n) => setNote(c.id, n)}
+                onSetPhotos={(p) => setPhotos(c.id, p)}
+                onClear={() => clearVal(c.id)}
+                onToast={onToast} />
+            </div>
             )}
+
+            {/* Bouton ajouter une question (mode édition) */}
+            {editMode &&
+            <button onClick={() => onAddCrit(activeSection.id)} style={{
+              width: '100%', padding: '14px 12px', marginTop: 6,
+              border: '2px dashed var(--red)', borderRadius: 4,
+              background: 'var(--red-tint)', color: 'var(--red)',
+              fontSize: 13, fontWeight: 600, letterSpacing: '0.02em',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
+            }}>+ Ajouter une question à "{activeSection.short}"</button>
+            }
           </div>
 
           {/* FOOTER NAV inside panel */}
@@ -2925,13 +3267,8 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
     return (
       <div style={{
         marginTop: 6, marginBottom: -4, paddingTop: 14, paddingBottom: 6,
-        borderTop: '1.5px solid var(--ink)',
-        display: 'flex', alignItems: 'center', gap: 10
+        borderTop: '1.5px solid var(--ink)'
       }}>
-        <span style={{ width: 14, height: 14, borderRadius: '50%',
-          background: 'var(--ink)', color: 'var(--paper-light)',
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 9, fontWeight: 700 }}>♿</span>
         <h4 style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.04em',
           textTransform: 'uppercase', color: 'var(--ink)' }}>{c.label}</h4>
       </div>
@@ -2946,7 +3283,7 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
   const photos = getPhotos(raw);
   const filled = isFilled(c, raw);
   const hasExtras = !!note;
-  const [showExtras, setShowExtras] = useState(hasExtras);
+  const [showExtras, setShowExtras] = useState(hasExtras || c.type === 'text');
   const [uploading, setUploading] = useState(false);
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
@@ -3103,7 +3440,8 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
         <CompositePNE value={compVal} onSet={setComp} />
       }
 
-      {/* NOTE — repliable */}
+      {/* NOTE — repliable (sauf pour type 'text' où elle est toujours ouverte) */}
+      {c.type !== 'text' &&
       <button onClick={() => setShowExtras((s) => !s)} style={{
         marginTop: 8, fontSize: 11, color: hasExtras ? 'var(--ink)' : 'var(--taupe)',
         display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 0',
@@ -3112,15 +3450,17 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
         {showExtras ? '−' : '+'} note libre
         {note && <span style={{ fontSize: 10, color: 'var(--taupe)' }}>· {note.length>30 ? note.slice(0,30)+'…' : note}</span>}
       </button>
+      }
       {showExtras && !locked &&
-      <div style={{ marginTop: 6 }}>
-        <textarea placeholder="Précision, contexte ou observation libre…" rows={2}
+      <div style={{ marginTop: c.type === 'text' ? 0 : 6 }}>
+        <textarea placeholder={c.type === 'text' ? "Saisir le texte…" : "Précision, contexte ou observation libre…"}
+          rows={c.type === 'text' ? 3 : 2}
           value={note}
           onChange={(e) => onSetNote(e.target.value)}
           style={{
             width: '100%', padding: '8px 10px', fontSize: 12.5, fontFamily: 'inherit',
             border: '1px solid var(--border)', borderRadius: 2, background: 'var(--paper-light)',
-            resize: 'vertical', outline: 'none', minHeight: 48, lineHeight: 1.4
+            resize: 'vertical', outline: 'none', minHeight: c.type === 'text' ? 72 : 48, lineHeight: 1.4
           }} />
       </div>
       }
@@ -3731,6 +4071,213 @@ function ExportScreen({ all, onBack, onExport }) {
 }
 
 /* ============================================================
+   GRID EDIT MODAL — modale unifiée pour éditer la grille
+   Gère 4 cas selon modal.type :
+     - 'edit-crit'    : modifier un critère existant (label, help, options)
+     - 'add-crit'     : ajouter un critère (avec sélection de type)
+     - 'edit-section' : modifier le header d'un onglet
+     - 'add-section'  : créer un nouvel onglet
+   ============================================================ */
+function GridEditModal({ modal, onClose, apply, gridRev, auteur }) {
+  if (!modal) return null;
+  const { type, sectionId, critId, current } = modal;
+
+  // États du formulaire — initialisés selon le type d'action
+  const isCrit = type === 'edit-crit' || type === 'add-crit';
+  const isSection = type === 'edit-section' || type === 'add-section';
+
+  const [label, setLabel] = useState(current?.label || '');
+  const [help, setHelp] = useState(current?.help || '');
+  const [critType, setCritType] = useState(current?.type || 'presence');
+  // Pour rating
+  const [ratingLabels, setRatingLabels] = useState(
+    Array.isArray(current?.labels) ? current.labels.join('\n') : 'Absent\nInsuffisant\nCorrect\nQualitatif'
+  );
+  // Pour choice / multi
+  const [choicesText, setChoicesText] = useState(
+    Array.isArray(current?.choices) ? current.choices.join('\n') : ''
+  );
+  // Pour section
+  const [sTitle, setSTitle] = useState(current?.title || '');
+  const [sShort, setSShort] = useState(current?.short || '');
+  const [sIcon, setSIcon] = useState(current?.icon || '•');
+  const [sSubtitle, setSSubtitle] = useState(current?.subtitle || '');
+
+  const isSystem = current?.system === true;
+  const canEditType = type === 'add-crit'; // type modifiable seulement à la création
+
+  const submit = () => {
+    if (isCrit) {
+      const labels = ratingLabels.split('\n').map(s => s.trim()).filter(Boolean);
+      const choices = choicesText.split('\n').map(s => s.trim()).filter(Boolean);
+      const payload = { label: label.trim(), help: help.trim() || undefined };
+      // Ajoute les champs spécifiques selon le type
+      const tt = type === 'add-crit' ? critType : current.type;
+      if (tt === 'rating') {
+        payload.scale = labels.length || 4;
+        payload.labels = labels.length ? labels : ['Absent','Insuffisant','Correct','Qualitatif'];
+      }
+      if (tt === 'choice' || tt === 'multi') {
+        if (!choices.length) { alert('Renseigne au moins une option (une par ligne)'); return; }
+        payload.choices = choices;
+      }
+      if (!payload.label) { alert('Le libellé est obligatoire'); return; }
+
+      if (type === 'add-crit') {
+        payload.type = critType;
+        apply(() => { gridAddCriterion(sectionId, payload, auteur); return true; }, 'Question ajoutée');
+      } else {
+        apply(() => gridUpdateCriterion(sectionId, critId, payload, auteur), 'Question modifiée');
+      }
+    } else if (isSection) {
+      const payload = {
+        title: sTitle.trim(),
+        short: sShort.trim() || sTitle.trim().slice(0, 8),
+        icon: sIcon.trim() || '•',
+        subtitle: sSubtitle.trim()
+      };
+      if (!payload.title) { alert('Le titre de l\'onglet est obligatoire'); return; }
+      if (type === 'add-section') {
+        apply(() => { gridAddSection(payload, auteur); return true; }, 'Onglet créé');
+      } else {
+        apply(() => gridUpdateSection(sectionId, payload, auteur), 'Onglet modifié');
+      }
+    }
+    onClose();
+  };
+
+  const titleByType = {
+    'edit-crit': 'Modifier la question',
+    'add-crit': 'Ajouter une question',
+    'edit-section': 'Modifier l\'onglet',
+    'add-section': 'Nouvel onglet'
+  };
+
+  // Type options pour le selecteur
+  const TYPE_OPTIONS = [
+    { value: 'presence', label: 'Présence (Présent / Absent)' },
+    { value: 'pn', label: 'Présence + Nombre' },
+    { value: 'pne', label: 'Présence + Nombre + État' },
+    { value: 'count', label: 'Compteur (entier)' },
+    { value: 'number', label: 'Nombre libre' },
+    { value: 'rating', label: 'Note (4 niveaux avec labels custom)' },
+    { value: 'choice', label: 'Choix unique (liste)' },
+    { value: 'multi', label: 'Choix multiple (cases à cocher)' },
+    { value: 'text', label: 'Texte libre' },
+    { value: 'subhead', label: 'Sous-titre (séparateur visuel)' }
+  ];
+
+  const tt = type === 'add-crit' ? critType : current?.type;
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 2000,
+      display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 0
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: 'var(--paper-light)', width: '100%', maxWidth: 560,
+        maxHeight: '92vh', overflowY: 'auto',
+        borderTopLeftRadius: 12, borderTopRightRadius: 12,
+        padding: '20px 18px 24px', boxShadow: 'var(--shadow-lg)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 18 }}>{titleByType[type]}</h2>
+          <button onClick={onClose} style={{ fontSize: 22, color: 'var(--taupe)', padding: '4px 8px' }}>×</button>
+        </div>
+
+        {/* Critère */}
+        {isCrit && <>
+          <Field label="Libellé de la question *">
+            <input value={label} onChange={e => setLabel(e.target.value)}
+              placeholder="Ex: Présence d'une borne d'appel" style={inputStyle} autoFocus />
+          </Field>
+
+          <Field label="Aide (optionnel)">
+            <textarea value={help} onChange={e => setHelp(e.target.value)}
+              placeholder="Texte court qui apparaît sous le libellé"
+              rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
+          </Field>
+
+          <Field label={`Type de question ${canEditType ? '*' : '(non modifiable)'}`}>
+            <select value={critType} disabled={!canEditType}
+              onChange={e => setCritType(e.target.value)} style={inputStyle}>
+              {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            {!canEditType && <p style={hintStyle}>
+              Pour changer de type, supprime cette question et crée-en une nouvelle.
+            </p>}
+          </Field>
+
+          {tt === 'rating' && (
+            <Field label="Labels des 4 niveaux (un par ligne, du plus bas au plus haut)">
+              <textarea value={ratingLabels} onChange={e => setRatingLabels(e.target.value)}
+                rows={4} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 13 }} />
+            </Field>
+          )}
+
+          {(tt === 'choice' || tt === 'multi') && (
+            <Field label="Options (une par ligne) *">
+              <textarea value={choicesText} onChange={e => setChoicesText(e.target.value)}
+                rows={5} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 13 }}
+                placeholder={"Option 1\nOption 2\nOption 3"} />
+            </Field>
+          )}
+        </>}
+
+        {/* Section */}
+        {isSection && <>
+          {isSystem && type === 'edit-section' && <div style={{
+            background: 'var(--amber-tint)', padding: '8px 12px', fontSize: 12,
+            color: 'var(--amber)', marginBottom: 12, borderRadius: 4
+          }}>
+            ⚠ Onglet système — tu peux modifier son titre/sous-titre mais pas le supprimer.
+          </div>}
+          <Field label="Titre complet *">
+            <input value={sTitle} onChange={e => setSTitle(e.target.value)}
+              placeholder="Ex: Information voyageurs" style={inputStyle} autoFocus />
+          </Field>
+          <Field label="Nom court (affiché dans la barre du bas)">
+            <input value={sShort} onChange={e => setSShort(e.target.value)}
+              placeholder="Ex: Info" maxLength={12} style={inputStyle} />
+          </Field>
+          <Field label="Sous-titre (optionnel)">
+            <input value={sSubtitle} onChange={e => setSSubtitle(e.target.value)}
+              placeholder="Description courte de l'onglet" style={inputStyle} />
+          </Field>
+        </>}
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
+          <button onClick={onClose} style={{
+            flex: 1, padding: '12px 16px', border: '1px solid var(--border)',
+            background: 'var(--paper-light)', fontWeight: 500, borderRadius: 4
+          }}>Annuler</button>
+          <button onClick={submit} style={{
+            flex: 2, padding: '12px 16px', background: 'var(--red)',
+            color: 'white', fontWeight: 600, borderRadius: 4
+          }}>{type.startsWith('add') ? 'Créer' : 'Enregistrer'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const inputStyle = {
+  width: '100%', padding: '10px 12px', border: '1px solid var(--border)',
+  background: 'var(--white)', fontSize: 14, borderRadius: 4
+};
+const hintStyle = { fontSize: 11, color: 'var(--taupe)', marginTop: 4 };
+function Field({ label, children }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ display: 'block', fontSize: 12, fontWeight: 600,
+        textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-soft)',
+        marginBottom: 6 }}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+/* ============================================================
    APP
    ============================================================ */
 function App() {
@@ -3740,22 +4287,32 @@ function App() {
   const [toast, setToast] = useState(null);
   const [syncing, setSyncing] = useState(false);
 
+  // Mode édition de la grille (toggle global)
+  const [editMode, setEditMode] = useState(false);
+  // Compteur de révision : incrémenté à chaque modification de SECTIONS
+  // → force le re-render des composants qui dépendent de la grille
+  const [gridRev, setGridRev] = useState(0);
+  const bumpGrid = useCallback(() => setGridRev(r => r + 1), []);
+
   // Initial pull from Supabase + local persistence
   useEffect(() => {
     let mounted = true;
     setSyncing(true);
-    pullAllFromSupa().then((fresh) => {
-      if (mounted && fresh) setAll(fresh);
+    Promise.all([pullAllFromSupa(), pullGrilleFromSupa()]).then(([fresh, grille]) => {
+      if (!mounted) return;
+      if (fresh) setAll(fresh);
+      if (grille) bumpGrid();
       setSyncing(false);
     });
     return () => { mounted = false; };
-  }, []);
+  }, [bumpGrid]);
 
   // Real-time sync : refresh when teammates push changes
   useEffect(() => {
-    const teardown = setupRealtimeSync((fresh) => setAll(fresh));
-    return teardown;
-  }, []);
+    const teardownVis = setupRealtimeSync((fresh) => setAll(fresh));
+    const teardownGri = setupGrilleRealtime(() => bumpGrid());
+    return () => { teardownVis(); teardownGri(); };
+  }, [bumpGrid]);
 
   // Persist locally
   useEffect(() => { saveAll(all); }, [all]);
@@ -3771,6 +4328,62 @@ function App() {
     }
     // eslint-disable-next-line
   }, []);
+
+  // Wrapper qui mute SECTIONS + push Supabase + force re-render
+  const applyGridChange = useCallback((mutateFn, successMsg) => {
+    const ok = mutateFn();
+    if (ok === false) return false;
+    bumpGrid();
+    pushGrilleToSupa(auteur);
+    if (successMsg) setToast({ msg: successMsg, type: 'success' });
+    setTimeout(() => setToast(null), 1800);
+    return ok;
+  }, [auteur, bumpGrid]);
+
+  // State de la modale d'édition de la grille
+  // editModal = null | { type, sectionId?, critId?, current? }
+  // types: 'edit-crit' | 'add-crit' | 'add-section' | 'edit-section'
+  const [editModal, setEditModal] = useState(null);
+
+  const openGridEdit = useCallback((type, sectionId, critId) => {
+    const sec = sectionId ? SECTIONS.find(s => s.id === sectionId) : null;
+    const crit = critId && sec ? (sec.criteria || []).find(c => c.id === critId) : null;
+    setEditModal({ type, sectionId, critId, current: crit || sec || null });
+  }, [gridRev]); // gridRev pour avoir la dernière version
+
+  const closeGridEdit = useCallback(() => setEditModal(null), []);
+
+  // Confirmation de suppression d'un critère
+  const confirmDeleteCrit = useCallback((sectionId, critId) => {
+    const sec = SECTIONS.find(s => s.id === sectionId);
+    const crit = (sec?.criteria || []).find(c => c.id === critId);
+    if (!crit) return;
+    const msg = `Supprimer la question "${crit.label}" ?\n\nLes réponses déjà saisies sur les visites resteront stockées en base et seront récupérables si on remet la question avec le même identifiant.`;
+    if (confirm(msg)) {
+      applyGridChange(() => gridDeleteCriterion(sectionId, critId), 'Question supprimée');
+    }
+  }, [applyGridChange, gridRev]);
+
+  // Confirmation de suppression d'un onglet
+  const confirmDeleteSection = useCallback((sectionId) => {
+    const sec = SECTIONS.find(s => s.id === sectionId);
+    if (!sec) return;
+    if (sec.system) {
+      alert(`L'onglet "${sec.title}" est un onglet système et ne peut pas être supprimé. Vous pouvez en revanche modifier ou supprimer ses questions.`);
+      return;
+    }
+    const msg = `Supprimer l'onglet "${sec.title}" et toutes ses ${(sec.criteria||[]).length} question(s) ?\n\nLes réponses déjà saisies resteront stockées en base.`;
+    if (confirm(msg)) {
+      applyGridChange(() => gridDeleteSection(sectionId), 'Onglet supprimé');
+    }
+  }, [applyGridChange, gridRev]);
+
+  // Restaurer la grille par défaut
+  const restoreDefaultGrille = useCallback(() => {
+    if (!confirm("⚠ Restaurer la grille par défaut ?\n\nToutes les modifications apportées (questions ajoutées, modifiées, supprimées, nouveaux onglets) seront perdues.\n\nLes réponses déjà saisies sur les visites ne sont PAS affectées.")) return;
+    applyGridChange(() => { gridRestoreDefault(); return true; }, 'Grille restaurée');
+  }, [applyGridChange]);
+
 
   const showToast = (msg, type = '') => {
     setToast({ msg, type });
@@ -3935,7 +4548,12 @@ function App() {
         onPick={() => setRoute({ name: 'picker' })}
         onOpen={(g) => setRoute({ name: 'form', gareName: g })}
         onChangeAuteur={changeAuteur}
-        onExportAll={() => setRoute({ name: 'export' })} />
+        onExportAll={() => setRoute({ name: 'export' })}
+        editMode={editMode}
+        onToggleEdit={() => setEditMode(e => !e)}
+        onRestoreGrille={restoreDefaultGrille}
+        gridRev={gridRev} />
+      <GridEditModal modal={editModal} onClose={closeGridEdit} apply={applyGridChange} gridRev={gridRev} auteur={auteur} />
       <Toast toast={toast} />
     </>;
   }
@@ -3959,7 +4577,17 @@ function App() {
         onBack={() => setRoute({ name: 'home' })}
         onOverview={() => setRoute({ name: 'overview', gareName: g.nom })}
         onDelete={() => deleteVisite(g.nom)}
-        onToast={showToast} />
+        onToast={showToast}
+        editMode={editMode}
+        onToggleEdit={() => setEditMode(e => !e)}
+        onEditCrit={(sid, cid) => openGridEdit('edit-crit', sid, cid)}
+        onAddCrit={(sid) => openGridEdit('add-crit', sid)}
+        onDeleteCrit={confirmDeleteCrit}
+        onEditSection={(sid) => openGridEdit('edit-section', sid)}
+        onAddSection={() => openGridEdit('add-section')}
+        onDeleteSection={confirmDeleteSection}
+        gridRev={gridRev} />
+      <GridEditModal modal={editModal} onClose={closeGridEdit} apply={applyGridChange} gridRev={gridRev} auteur={auteur} />
       <Toast toast={toast} />
     </>;
   }
@@ -3971,7 +4599,8 @@ function App() {
       <OverviewScreen gare={g} visite={v}
         onBack={() => setRoute({ name: 'form', gareName: g.nom })}
         onZone={(id) => setRoute({ name: 'form', gareName: g.nom, jumpTo: id })}
-        onExport={() => exportData([v], 'xlsx', `releve_${g.nom}`)} />
+        onExport={() => exportData([v], 'xlsx', `releve_${g.nom}`)}
+        gridRev={gridRev} />
       <Toast toast={toast} />
     </>;
   }
