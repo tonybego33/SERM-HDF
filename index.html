@@ -2270,6 +2270,34 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
         </div>
       </div>
 
+      {/* BARRE TITRE ONGLET — TOUJOURS VISIBLE (hors zone scrollable) */}
+      <div style={{
+        background: activeSection.bureau ? '#F5F7F9' : 'var(--white)',
+        borderTop: '1px solid var(--border)',
+        borderBottom: '2px solid var(--ink)',
+        padding: '10px 18px',
+        display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0
+      }}>
+        <div className="tabular" style={{
+          fontSize: 24, fontWeight: 700, lineHeight: 0.9,
+          color: activeSection.bureau ? 'var(--bureau)' : 'var(--red)',
+          fontFamily: 'var(--font-display)', letterSpacing: '-0.04em', flexShrink: 0
+        }}>{String(Math.floor(activeSection.n)).padStart(2, '0')}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h3 style={{ fontSize: 14.5, fontWeight: 600, lineHeight: 1.1, letterSpacing: '-0.015em',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeSection.title}</h3>
+          <div style={{ fontSize: 10, color: 'var(--taupe)', marginTop: 1,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeSection.subtitle}</div>
+        </div>
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <div className="tabular" style={{ fontSize: 13, fontWeight: 700,
+            color: sStats.filled === sStats.total && sStats.total > 0 ? 'var(--green)' : 'var(--ink)' }}>
+            {sStats.filled}<span style={{ color: 'var(--taupe-light)', fontWeight: 500 }}>/{sStats.total}</span>
+          </div>
+          <div style={{ fontSize: 8.5, color: 'var(--taupe)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>relevés</div>
+        </div>
+      </div>
+
       {/* SECTION PANEL — full focus */}
       <div id="panel-scroll" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
       style={{ flex: 1, overflowY: 'auto',
@@ -2343,59 +2371,32 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
           </div>
           }
 
-          {/* SECTION HEADER — sticky pour rester visible au scroll */}
-          <div style={{
-            position: 'sticky',
-            top: editMode ? 48 : 0,
-            zIndex: 4,
-            background: editMode ? '#FFF6F0' : (activeSection.bureau ? '#F5F7F9' : 'var(--white)'),
-            margin: '0 -18px 18px',
-            padding: '12px 18px 12px',
-            borderBottom: '1px solid var(--border)',
-            display: 'flex', alignItems: 'center', gap: 14
-          }}>
-            <div className="tabular" style={{
-              fontSize: 28, fontWeight: 700, lineHeight: 0.9,
-              color: activeSection.bureau ? 'var(--bureau)' : 'var(--red)',
-              fontFamily: 'var(--font-display)', letterSpacing: '-0.04em', flexShrink: 0
-            }}>{String(Math.floor(activeSection.n)).padStart(2, '0')}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <h3 style={{ fontSize: 15.5, fontWeight: 600, lineHeight: 1.1, letterSpacing: '-0.015em' }}>{activeSection.title}</h3>
-              <div style={{ fontSize: 10.5, color: 'var(--taupe)', marginTop: 1,
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeSection.subtitle}</div>
-              {editMode &&
-              <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button onClick={() => onEditSection(activeSection.id)} style={{
-                  fontSize: 11, padding: '4px 10px', background: 'var(--white)',
-                  border: '1px solid var(--border)', borderRadius: 2, color: 'var(--ink)'
-                }}>✏ Modifier l'onglet</button>
-                {!activeSection.system &&
-                <button onClick={() => onDeleteSection(activeSection.id)} style={{
-                  fontSize: 11, padding: '4px 10px', background: 'var(--white)',
-                  border: '1px solid var(--red)', borderRadius: 2, color: 'var(--red)'
-                }}>✕ Supprimer l'onglet</button>
-                }
-                {activeSection.system &&
-                <span style={{ fontSize: 10, color: 'var(--taupe)', padding: '4px 8px',
-                  background: 'var(--paper-deep)', borderRadius: 2,
-                  display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  🔒 onglet système
-                </span>}
-                {activeSection.updatedBy && <span style={{
-                  fontSize: 10, color: 'var(--taupe)', padding: '4px 8px',
-                  background: 'var(--paper-deep)', borderRadius: 2
-                }}>dernière modif · {activeSection.updatedBy}{activeSection.updatedAt ? ` · ${fmtAgo(activeSection.updatedAt)}` : ''}</span>}
-              </div>
-              }
-            </div>
-            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              <div className="tabular" style={{ fontSize: 13, fontWeight: 700,
-                color: sStats.filled === sStats.total ? 'var(--green)' : 'var(--ink)' }}>
-                {sStats.filled}<span style={{ color: 'var(--taupe-light)', fontWeight: 500 }}>/{sStats.total}</span>
-              </div>
-              <div style={{ fontSize: 9.5, color: 'var(--taupe)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>relevés</div>
-            </div>
+          {/* En mode édition : panneau d'actions pour l'onglet (modifier / supprimer / dernière modif) */}
+          {editMode &&
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap',
+            background: 'var(--paper-light)', border: '1px dashed var(--border)', padding: '8px 10px', borderRadius: 2 }}>
+            <button onClick={() => onEditSection(activeSection.id)} style={{
+              fontSize: 11, padding: '4px 10px', background: 'var(--white)',
+              border: '1px solid var(--border)', borderRadius: 2, color: 'var(--ink)'
+            }}>✏ Modifier l'onglet</button>
+            {!activeSection.system &&
+            <button onClick={() => onDeleteSection(activeSection.id)} style={{
+              fontSize: 11, padding: '4px 10px', background: 'var(--white)',
+              border: '1px solid var(--red)', borderRadius: 2, color: 'var(--red)'
+            }}>✕ Supprimer l'onglet</button>
+            }
+            {activeSection.system &&
+            <span style={{ fontSize: 10, color: 'var(--taupe)', padding: '4px 8px',
+              background: 'var(--paper-deep)', borderRadius: 2,
+              display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              🔒 onglet système
+            </span>}
+            {activeSection.updatedBy && <span style={{
+              fontSize: 10, color: 'var(--taupe)', padding: '4px 8px',
+              background: 'var(--paper-deep)', borderRadius: 2
+            }}>dernière modif · {activeSection.updatedBy}{activeSection.updatedAt ? ` · ${fmtAgo(activeSection.updatedAt)}` : ''}</span>}
           </div>
+          }
           {/* trait séparateur retiré : le header sticky a sa propre borderBottom */}
 
           {/* Bouton next-section compact en haut — pour ne pas avoir à scroller */}
@@ -4367,18 +4368,20 @@ function PrintScreen({ gare, visite, onBack }) {
           body { background: white !important; margin: 0 !important; }
           .print-page { box-shadow: none !important; margin: 0 !important; width: 100% !important; min-height: auto !important; }
           .pagebreak { page-break-before: always; }
-          h2 { page-break-after: avoid; }
+          /* Pas de page-break-after sur h2 : on accepte un titre en bas de page
+             pour mieux remplir l'espace */
           table { page-break-inside: auto; }
           tr { page-break-inside: avoid; page-break-after: auto; }
+          thead { display: table-row-group; }
         }
-        @page { size: A4 portrait; margin: 8mm 8mm 10mm; }
+        @page { size: A4 portrait; margin: 7mm 7mm 8mm; }
       `}</style>
 
       {/* PAGE A4 */}
       <div className="print-page" style={{
         background: 'white', width: '210mm', margin: '20px auto',
-        padding: '10mm 10mm', boxShadow: '0 2px 20px rgba(0,0,0,0.1)',
-        fontSize: 9, lineHeight: 1.35, color: '#1A1A1A'
+        padding: '7mm 8mm', boxShadow: '0 2px 20px rgba(0,0,0,0.1)',
+        fontSize: 8.5, lineHeight: 1.3, color: '#1A1A1A'
       }}>
         {/* HEADER FICHE */}
         <div style={{ borderBottom: '2px solid #C8102E', paddingBottom: 6, marginBottom: 10,
