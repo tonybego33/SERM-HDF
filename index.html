@@ -4020,7 +4020,7 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
        On laisse les zones telles quelles (les paths zone-* ont déjà fill-opacity 0.22 d'origine). */
 
     /* On masque les "décorations" parasites :
-       - rond-halo gris derrière Lille Flandres
+       - rond-halo gris/blanc/rose derrière Lille Flandres, Roubaix, Tourcoing, Ascq etc.
        - pastille-point au centre des gares (effet donut)
        - badges de numéros de ligne baladés dans sg-decorations
        MAIS on préserve les TRACÉS (paths sans fill) qui sont en fait
@@ -4028,7 +4028,8 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
     if (!sh.decorations) {
       ['sg-decorations-', 'sg-fond-pays-'].forEach(prefix => {
         svg.querySelectorAll(`[id^="${prefix}"]`).forEach(g => {
-          if (g.querySelector('[id^="gare-"]')) return; // garde Lille Flandres etc.
+          // ⚠ On ne saute PLUS les décorations contenant gare-xxx — c'est PRÉCISÉMENT
+          // celles-là qui contiennent les gros halos blancs/roses parasites
           g.querySelectorAll(':scope > path, :scope > rect, :scope > circle').forEach(p => {
             const fill = (p.getAttribute('fill') || '').toLowerCase();
             if (fill && fill !== 'none' && fill !== 'transparent') {
@@ -4104,12 +4105,11 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
       uni.setAttribute('stroke', stroke);
       uni.setAttribute('stroke-width', String(strokeW));
 
-      // Label : nom de la gare — affiché UNIQUEMENT pour les gares visitées (wip/done).
-      // Ça allège fortement la carte (pas 179 labels qui se chevauchent) tout en
-      // mettant en avant ce qui est actionnable.
+      // Label : nom de la gare — affiché pour TOUTES les gares
+      // Style adapté selon le statut : gros et coloré pour visitées, petit et taupe pour à visiter
       let label = g.querySelector(':scope > text.nm-label');
-      if (status === 'wip' || status === 'done') {
-        if (!label && uni) {
+      if (uni) {
+        if (!label) {
           const inkLabel = g.getAttribute('inkscape:label')
             || g.getAttribute('data-name')
             || baseId.replace(/^gare-/, '').replace(/-/g, ' ');
@@ -4118,13 +4118,10 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
           label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
           label.setAttribute('class', 'nm-label');
           label.setAttribute('x', String(cxN));
-          label.setAttribute('y', String(cyN + th.gareR + 16));
+          label.setAttribute('y', String(cyN + th.gareR + 14));
           label.setAttribute('text-anchor', 'middle');
-          label.setAttribute('font-size', '15');
           label.setAttribute('font-family', 'Manrope, system-ui, sans-serif');
-          label.setAttribute('font-weight', '700');
           label.setAttribute('stroke', '#FAF8F3');
-          label.setAttribute('stroke-width', '3');
           label.setAttribute('stroke-linejoin', 'round');
           label.setAttribute('paint-order', 'stroke fill');
           label.style.pointerEvents = 'none';
@@ -4132,11 +4129,24 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
           label.textContent = inkLabel;
           g.appendChild(label);
         }
-        if (label) {
-          label.setAttribute('fill', status === 'wip' ? '#C8102E' : '#1D5E3A');
+        // Style selon statut
+        if (status === 'wip') {
+          label.setAttribute('fill', '#C8102E');
+          label.setAttribute('font-size', '15');
+          label.setAttribute('font-weight', '700');
+          label.setAttribute('stroke-width', '3');
+        } else if (status === 'done') {
+          label.setAttribute('fill', '#1D5E3A');
+          label.setAttribute('font-size', '15');
+          label.setAttribute('font-weight', '700');
+          label.setAttribute('stroke-width', '3');
+        } else {
+          // À visiter : petit, taupe, halo blanc fin
+          label.setAttribute('fill', '#6B6259');
+          label.setAttribute('font-size', '10');
+          label.setAttribute('font-weight', '500');
+          label.setAttribute('stroke-width', '2');
         }
-      } else if (label) {
-        label.remove();
       }
 
       // Halo radar : un cercle qui s'agrandit + s'estompe, uniquement sur les WIP
@@ -6959,7 +6969,17 @@ function App() {
     setSyncing(true);
     Promise.all([pullAllFromSupa(), pullGrilleFromSupa()]).then(([fresh, grille]) => {
       if (!mounted) return;
-      if (fresh) setAll(fresh);
+      if (fresh) {
+        // Au pull initial, on respecte pendingState au cas où l'utilisateur
+        // aurait déjà modifié quelque chose (rare mais possible si pull lent)
+        setAll((prev) => {
+          const merged = { ...fresh };
+          Object.keys(pendingState.current).forEach(gn => {
+            merged[gn] = pendingState.current[gn];
+          });
+          return merged;
+        });
+      }
       if (grille) bumpGrid();
       setSyncing(false);
     });
@@ -6970,20 +6990,16 @@ function App() {
   useEffect(() => {
     const teardownVis = setupRealtimeSync((fresh) => {
       setAll((prev) => {
-        // Merge intelligent : pour les gares qu'on est en train d'éditer
-        // (push pending) ou qu'on vient de pousher (recently), on garde
-        // notre version locale pour éviter d'écraser ce que l'utilisateur
-        // est en train de taper.
+        // ⚠ Merge realtime — règle simple et FIABLE :
+        // Pour toute gare présente dans pendingState (push en cours ou récemment
+        // pushé, conf serveur pas encore retombée), on garde la version locale
+        // SANS aucune condition de timestamp. Les timestamps locaux ne sont pas
+        // fiables (ils changent à chaque keystroke), et c'est précisément ce
+        // qu'on essaie de protéger contre l'écho realtime qui pourrait les
+        // écraser.
         const merged = { ...fresh };
-        Object.keys(pendingPushes.current).forEach(gn => {
-          if (prev[gn]) merged[gn] = prev[gn];
-        });
-        Object.keys(recentlyPushed.current).forEach(gn => {
-          // Si notre version locale est plus récente que ce qui revient
-          // du serveur, on garde la nôtre
-          if (prev[gn] && (!fresh[gn] || prev[gn].updated >= fresh[gn].updated)) {
-            merged[gn] = prev[gn];
-          }
+        Object.keys(pendingState.current).forEach(gn => {
+          merged[gn] = pendingState.current[gn];
         });
         return merged;
       });
@@ -7088,25 +7104,46 @@ function App() {
   };
 
   /* ============================================================
-     RACE CONDITION FIX — debounce des pushes + filtrage des échos
+     RACE CONDITION FIX v2 — pendingState au lieu de timestamps
      ============================================================
-     Problème résolu : taper "Quai non présent" pendant que Supabase
-     renvoie l'écho de notre propre push écrase ce qu'on est en train
-     de taper. La solution : (1) debounce le push de 800ms, (2) garder
-     une trace de nos pushes en cours pour les ignorer au retour realtime.
+     Problèmes résolus :
+       - Photos qui disparaissent après les avoir prises
+       - Texte qui se perd quand on tape pendant un sync realtime
+       - Clics qui ne réagissent pas (UI ré-rendue avec ancien state)
+     Approche : tant qu'une modif locale n'est pas confirmée par le
+     serveur, on garde la version locale dans `pendingState`. Le merge
+     realtime IGNORE toute gare présente dans pendingState, sans aucune
+     condition de timestamp (les timestamps locaux n'étant pas fiables).
      ============================================================ */
   const pendingPushes = useRef({});  // gareName -> timeoutId (push en attente)
-  const recentlyPushed = useRef({}); // gareName -> ts (push récent à ignorer au retour)
+  const pendingState = useRef({});   // gareName -> visite locale en attente de confirmation serveur
 
   const debouncedPush = useCallback((visite) => {
     const gn = visite.gare;
+    // ⚠ Verrouille IMMÉDIATEMENT la version locale avant le timer.
+    // Ainsi, même si un realtime arrive AVANT le push, le merge garde le local.
+    pendingState.current[gn] = visite;
+
     if (pendingPushes.current[gn]) clearTimeout(pendingPushes.current[gn]);
     pendingPushes.current[gn] = setTimeout(async () => {
       delete pendingPushes.current[gn];
-      recentlyPushed.current[gn] = Date.now();
-      try { await pushVisiteToSupa(visite); } catch (e) { console.warn('Push failed:', e); }
-      // Garde la trace 4 secondes pour ignorer le retour realtime de notre propre push
-      setTimeout(() => { delete recentlyPushed.current[gn]; }, 4000);
+      const versionPushed = visite;
+      try {
+        await pushVisiteToSupa(versionPushed);
+      } catch (e) {
+        console.warn('Push failed, keeping local pending state:', e);
+        // En cas d'erreur, on GARDE pendingState pour ne pas perdre les modifs
+        return;
+      }
+      // Push réussi. On retire le verrou 3 sec après pour absorber les échos
+      // realtime retardés. MAIS si l'utilisateur a fait une nouvelle modif
+      // entre-temps (pendingState a été réécrit), on ne touche à rien :
+      // un autre push est déjà programmé et il prendra le relais.
+      setTimeout(() => {
+        if (pendingState.current[gn] === versionPushed) {
+          delete pendingState.current[gn];
+        }
+      }, 3000);
     }, 800);
   }, []);
 
@@ -7116,7 +7153,7 @@ function App() {
     const existing = v.auteur || '';
     const auteurs = new Set(existing.split(',').map(s => s.trim()).filter(Boolean));
     if (auteur) auteurs.add(auteur);
-    const updated = { ...v, auteur: [...auteurs].join(', ') };
+    const updated = { ...v, auteur: [...auteurs].join(', '), updated: new Date().toISOString() };
     setAll((a) => ({ ...a, [v.gare]: updated }));
     debouncedPush(updated);
   };
