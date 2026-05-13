@@ -11,6 +11,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
@@ -3261,6 +3263,16 @@ function OverviewScreen({ gare, visite, onBack, onZone, onExport, onPrintPDF, on
           ⇣ Exporter ce carnet (CSV)
         </button>
 
+        {onPrintPDF &&
+        <button onClick={onPrintPDF} style={{
+          marginTop: 10, width: '100%', padding: '13px', background: 'var(--ink)', color: 'var(--paper-light)',
+          fontWeight: 600, fontSize: 13, letterSpacing: '0.03em',
+          borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
+        }}>
+          📄 Télécharger la fiche PDF (A4)
+        </button>
+        }
+
         {/* DANGER ZONE — bien séparé, en bas */}
         {onDelete &&
         <div style={{ marginTop: 40, paddingTop: 20, borderTop: '1px dashed var(--red-soft)' }}>
@@ -4235,6 +4247,275 @@ function App() {
     setSyncing(false);
   };
 
+  /* ===== GÉNÉRATION PDF NATIF (jsPDF) — A4 calibré, téléchargement direct ===== */
+
+  // Convertit une URL (publique ou data:) en data URL JPEG
+  const urlToBase64 = async (url) => {
+    if (url.startsWith('data:')) return url;
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(blob);
+    });
+  };
+
+  // Redimensionne pour le PDF (max 600px, JPEG 75%)
+  const resizeForPDF = async (url, maxDim = 600) => {
+    const dataUrl = await urlToBase64(url);
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const ratio = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.round(img.width * ratio);
+        const h = Math.round(img.height * ratio);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.75), w, h });
+      };
+      img.onerror = () => reject(new Error('img load failed'));
+      img.src = dataUrl;
+    });
+  };
+
+  // Formate la valeur d'un critère pour le PDF (texte court)
+  const formatValForPDF = (c, raw) => {
+    if (raw && typeof raw === 'object' && raw.na === true) return 'N/A';
+    const v = getVal(raw);
+    if (v == null || v === '') return '—';
+    if (Array.isArray(v)) return v.join(', ');
+    if (typeof v === 'object') {
+      const parts = [];
+      if (v.presence === 'yes') parts.push('Présent');
+      if (v.presence === 'no') parts.push('Absent');
+      if (v.nb != null && v.nb !== '') parts.push(`n=${v.nb}`);
+      if (v.etat != null) {
+        const labels = ['mauvais', 'moyen', 'bon', 'très bon'];
+        parts.push(`état ${labels[Math.round(v.etat*3)] || ''}`);
+      }
+      return parts.join(' · ') || '—';
+    }
+    if (c.type === 'rating' && c.labels && typeof v === 'number') return c.labels[v] || `Note ${v}`;
+    return String(v);
+  };
+
+  const [pdfStatus, setPdfStatus] = useState(null); // { stage, current, total } | null
+
+  const buildPDFForGare = async (gare, visite) => {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      showToast('Bibliothèque PDF non chargée — recharge la page', 'error');
+      return;
+    }
+    setPdfStatus({ stage: 'Génération du PDF…', current: 0, total: 1 });
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const PAGE_W = 210, PAGE_H = 297, MARGIN = 10;
+    const CONTENT_W = PAGE_W - 2 * MARGIN;
+
+    // ── HEADER bandeau rouge ──
+    doc.setFillColor(200, 16, 46);
+    doc.rect(0, 0, PAGE_W, 22, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.text('AREP × G&C · SERM HAUTS-DE-FRANCE', MARGIN, 7);
+    doc.setFontSize(16);
+    doc.text(gare.nom, MARGIN, 15);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${gare.cat_pro} · ${gare.cat_sgp} · ${gare.secteur}`, MARGIN, 20);
+    // Compteur droite
+    const stats = visiteStats(gare, visite.data);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(22);
+    doc.text(`${stats.pct}%`, PAGE_W - MARGIN, 14, { align: 'right' });
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${stats.filled}/${stats.total} critères`, PAGE_W - MARGIN, 19, { align: 'right' });
+    doc.setTextColor(0, 0, 0);
+
+    let y = 28;
+
+    // ── META ──
+    doc.setFillColor(245, 242, 235);
+    doc.rect(MARGIN, y, CONTENT_W, 10, 'F');
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.text('DATE VISITE', MARGIN + 2, y + 3.5);
+    doc.text('MÉTÉO', MARGIN + 50, y + 3.5);
+    doc.text('ENQUÊTEUR', MARGIN + 95, y + 3.5);
+    doc.text('UIC', MARGIN + 145, y + 3.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(visite.data?.visite_date || '—', MARGIN + 2, y + 8);
+    doc.text(visite.data?.visite_meteo || '—', MARGIN + 50, y + 8);
+    doc.text(visite.auteur || '—', MARGIN + 95, y + 8);
+    doc.text(String(gare.uic), MARGIN + 145, y + 8);
+    y += 14;
+
+    // ── SECTIONS ──
+    const sections = SECTIONS.filter(s => !s.skipIf || !s.skipIf(gare, visite.data));
+    for (const s of sections) {
+      const items = (s.criteria || []).filter(c => c.type !== 'subhead' && c.type !== 'text');
+      if (items.length === 0) continue;
+      const sStats = sectionStats(s, visite.data);
+
+      doc.autoTable({
+        startY: y,
+        head: [[
+          { content: `${String(Math.floor(s.n)).padStart(2,'0')} · ${s.title}`,
+            styles: { halign: 'left' } },
+          { content: `${sStats.filled}/${sStats.total}`,
+            styles: { halign: 'right' } }
+        ]],
+        body: items.map(c => {
+          const raw = visite.data?.[c.id];
+          const val = formatValForPDF(c, raw);
+          const tags = [];
+          if (raw?.photos?.length) tags.push(`📷${raw.photos.length}`);
+          if (raw?.note) tags.push('📝');
+          return [
+            { content: c.label, styles: { halign: 'left' } },
+            { content: val + (tags.length ? '   ' + tags.join(' ') : ''),
+              styles: { halign: 'left', fontStyle: 'bold' } }
+          ];
+        }),
+        styles: { fontSize: 7.5, cellPadding: { top: 0.8, right: 2, bottom: 0.8, left: 2 },
+          lineColor: [230, 230, 230], lineWidth: 0.1 },
+        headStyles: { fillColor: [26,26,26], textColor: 255, fontStyle: 'bold', fontSize: 8.5,
+          cellPadding: { top: 1.5, right: 2, bottom: 1.5, left: 2 } },
+        columnStyles: { 0: { cellWidth: 115 }, 1: { cellWidth: 75 } },
+        margin: { left: MARGIN, right: MARGIN },
+        theme: 'plain',
+        didDrawPage: () => {}
+      });
+      y = doc.lastAutoTable.finalY + 2;
+
+      // Notes libres significatives en dessous
+      const withNotes = items.filter(c => visite.data?.[c.id]?.note);
+      if (withNotes.length > 0) {
+        doc.setFontSize(6.5);
+        doc.setTextColor(80);
+        doc.setFont('helvetica', 'italic');
+        for (const c of withNotes) {
+          const noteText = `${c.label} : ${visite.data[c.id].note}`;
+          const wrapped = doc.splitTextToSize(noteText, CONTENT_W - 4);
+          if (y + wrapped.length * 2.5 > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
+          doc.text(wrapped, MARGIN + 2, y + 2);
+          y += wrapped.length * 2.5 + 0.5;
+        }
+        doc.setTextColor(0);
+        doc.setFont('helvetica', 'normal');
+        y += 1;
+      }
+      // Saut de page si on est près du bord
+      if (y > PAGE_H - 25) { doc.addPage(); y = MARGIN; }
+    }
+
+    // ── PHOTOS ──
+    const allPhotos = [];
+    sections.forEach(s => (s.criteria || []).forEach(c => {
+      const photos = visite.data?.[c.id]?.photos || [];
+      photos.forEach((p, i) => allPhotos.push({ p, label: c.label, section: s.short, num: i+1 }));
+    }));
+
+    if (allPhotos.length > 0) {
+      doc.addPage();
+      y = MARGIN;
+      doc.setFillColor(200, 16, 46);
+      doc.rect(0, 0, PAGE_W, 12, 'F');
+      doc.setTextColor(255);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Photothèque · ${allPhotos.length} photo${allPhotos.length > 1 ? 's' : ''}`, MARGIN, 8);
+      doc.setTextColor(0);
+      doc.setFont('helvetica', 'normal');
+      y = 18;
+
+      const COLS = 3, GAP = 3;
+      const cellW = (CONTENT_W - (COLS-1) * GAP) / COLS;
+      const cellH = cellW * 0.75;
+      const captionH = 6;
+
+      setPdfStatus({ stage: 'Téléchargement des photos…', current: 0, total: allPhotos.length });
+
+      // Fetch en parallèle par batch de 4 pour ne pas saturer
+      const BATCH = 4;
+      const processed = [];
+      for (let i = 0; i < allPhotos.length; i += BATCH) {
+        const batch = allPhotos.slice(i, i + BATCH);
+        const results = await Promise.all(batch.map(async (ph) => {
+          try {
+            const { dataUrl } = await resizeForPDF(ph.p.url, 600);
+            return { ...ph, dataUrl };
+          } catch (e) { return { ...ph, dataUrl: null }; }
+        }));
+        processed.push(...results);
+        setPdfStatus({ stage: 'Téléchargement des photos…', current: processed.length, total: allPhotos.length });
+      }
+
+      setPdfStatus({ stage: 'Mise en page des photos…', current: 0, total: processed.length });
+
+      let col = 0;
+      for (let k = 0; k < processed.length; k++) {
+        const ph = processed[k];
+        if (col === 0 && y + cellH + captionH > PAGE_H - MARGIN) {
+          doc.addPage();
+          y = MARGIN;
+        }
+        const x = MARGIN + col * (cellW + GAP);
+        // Fond
+        doc.setFillColor(240, 235, 224);
+        doc.rect(x, y, cellW, cellH, 'F');
+        if (ph.dataUrl) {
+          try { doc.addImage(ph.dataUrl, 'JPEG', x, y, cellW, cellH, undefined, 'FAST'); }
+          catch (e) { console.warn('addImage failed:', e); }
+        } else {
+          doc.setFontSize(6); doc.setTextColor(150);
+          doc.text('Image non dispo', x + cellW/2, y + cellH/2, { align: 'center' });
+          doc.setTextColor(0);
+        }
+        // Caption
+        doc.setFontSize(5.5);
+        doc.setTextColor(80);
+        const captionText = `${ph.section} · ${ph.label} #${ph.num}`;
+        const truncated = captionText.length > 38 ? captionText.slice(0, 36) + '…' : captionText;
+        doc.text(truncated, x, y + cellH + 3);
+        doc.setTextColor(0);
+
+        col++;
+        if (col === COLS) { col = 0; y += cellH + captionH; }
+        setPdfStatus({ stage: 'Mise en page des photos…', current: k + 1, total: processed.length });
+      }
+    }
+
+    // ── FOOTER sur toutes les pages ──
+    const totalPages = doc.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      doc.setFontSize(6.5);
+      doc.setTextColor(150);
+      doc.text(
+        `SERM HDF · ${gare.nom} · généré le ${new Date().toLocaleDateString('fr-FR')} · page ${p}/${totalPages}`,
+        PAGE_W/2, PAGE_H - 5, { align: 'center' }
+      );
+    }
+
+    // ── SAVE ──
+    const safeName = gare.nom.replace(/[^a-zA-Z0-9-]/g, '_');
+    const today = new Date().toISOString().slice(0, 10);
+    doc.save(`SERM_${safeName}_${today}.pdf`);
+    setPdfStatus(null);
+    showToast(`PDF généré : ${gare.nom} ✓`, 'success');
+  };
+
   if (route.name === 'home') {
     return <>
       <HomeScreen all={all} auteur={auteur} syncing={syncing}
@@ -4252,6 +4533,7 @@ function App() {
         gridRev={gridRev} />
       {!readOnly && <GridEditModal modal={editModal} onClose={closeGridEdit} apply={applyGridChange} gridRev={gridRev} auteur={auteur} />}
       <Toast toast={toast} />
+      <PDFProgressOverlay status={pdfStatus} />
     </>;
   }
   if (route.name === 'picker') {
@@ -4263,9 +4545,15 @@ function App() {
         onBack={() => setRoute({ name: 'home' })}
         onExport={(visites, format, name) => exportData(visites, format, name)}
         onExportPhotos={exportPhotosZip}
-        onPrintPDF={(gareName) => setRoute({ name: 'print', gareName })}
+        onPrintPDF={(gareName) => {
+          const g = GARES.find(x => x.nom === gareName);
+          const v = all[gareName];
+          if (g && v) buildPDFForGare(g, v);
+        }}
+        pdfStatus={pdfStatus}
         syncing={syncing} />
       <Toast toast={toast} />
+      <PDFProgressOverlay status={pdfStatus} />
     </>;
   }
   if (route.name === 'form') {
@@ -4289,6 +4577,7 @@ function App() {
         gridRev={gridRev} />
       {!readOnly && <GridEditModal modal={editModal} onClose={closeGridEdit} apply={applyGridChange} gridRev={gridRev} auteur={auteur} />}
       <Toast toast={toast} />
+      <PDFProgressOverlay status={pdfStatus} />
     </>;
   }
   if (route.name === 'overview') {
@@ -4300,18 +4589,12 @@ function App() {
         onBack={() => setRoute({ name: 'form', gareName: g.nom })}
         onZone={(id) => setRoute({ name: 'form', gareName: g.nom, jumpTo: id })}
         onExport={() => exportData([v], 'xlsx', `releve_${g.nom}`)}
-        onPrintPDF={() => setRoute({ name: 'print', gareName: g.nom })}
+        onPrintPDF={() => buildPDFForGare(g, v)}
         onDelete={readOnly ? null : (() => deleteVisite(g.nom))}
         gridRev={gridRev} />
       <Toast toast={toast} />
+      <PDFProgressOverlay status={pdfStatus} />
     </>;
-  }
-  if (route.name === 'print') {
-    const g = GARES.find((x) => x.nom === route.gareName);
-    const v = all[route.gareName];
-    if (!g || !v) { setTimeout(() => setRoute({ name: 'home' })); return null; }
-    return <PrintScreen gare={g} visite={v}
-      onBack={() => setRoute({ name: 'overview', gareName: g.nom })} />;
   }
   return null;
 }
@@ -4501,6 +4784,31 @@ function PrintScreen({ gare, visite, onBack }) {
         <div style={{ marginTop: 24, paddingTop: 8, borderTop: '1px solid #ccc',
           fontSize: 7.5, color: '#888', textAlign: 'center' }}>
           Fiche générée le {new Date().toLocaleString('fr-FR')} · SERM Hauts-de-France · AREP × Gares & Connexions
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PDFProgressOverlay({ status }) {
+  if (!status) return null;
+  const pct = status.total > 0 ? Math.round((status.current / status.total) * 100) : 0;
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 999,
+      background: 'rgba(26,26,26,0.85)', backdropFilter: 'blur(4px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center'
+    }}>
+      <div style={{ background: 'var(--white)', padding: '24px 28px', borderRadius: 4,
+        maxWidth: 360, width: '90%', textAlign: 'center' }}>
+        <div style={{ fontSize: 28, marginBottom: 10 }}>📄</div>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14 }}>{status.stage}</div>
+        <div style={{ background: 'var(--paper-deep)', height: 6, borderRadius: 99, overflow: 'hidden' }}>
+          <div style={{ background: 'var(--red)', height: '100%', width: `${pct}%`,
+            transition: 'width 0.2s' }} />
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--taupe)', marginTop: 8 }}>
+          {status.current} / {status.total} · {pct}%
         </div>
       </div>
     </div>
