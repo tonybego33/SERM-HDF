@@ -3987,8 +3987,8 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
     const setHidden = (selector, hidden) => {
       svg.querySelectorAll(selector).forEach(el => { el.style.display = hidden ? 'none' : ''; });
     };
-    setHidden('[id^="sg-textes"]', !sh.textes);
-    setHidden('[id^="label-"]', true);
+    // ⚠ Les noms de gares sont dans des <text> natifs (font-size 11 et 18) DANS
+    // gare-xxx, sg-textes-*, label-*, Cluster_Lille. On NE LES MASQUE PAS en bloc !
     setHidden('#Cluster_Lille', !sh.clusterLille);
     setHidden('[id^="sg-lignes-hors-zone"]', !sh.lignesHorsZone);
     setHidden('[id^="sg-numeros-lignes"]', !sh.numerosLignes);
@@ -3997,45 +3997,44 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
     setHidden('#zone_flux', !sh.zones);
     setHidden('[id^="sg-fond-pays"]', true);
 
-    // ⚠ Helper pour réparer le triple-encoding UTF-8 des labels Inkscape.
-    // "PÃƒÂ©renchies" → "Pérenchies" via 2 passes de unescape.
-    const fixUtfEncoding = (s) => {
-      if (!s || (!s.includes('Ã') && !s.includes('Â'))) return s;
-      try {
-        let f = decodeURIComponent(escape(s));
-        if (f.includes('Ã') || f.includes('Â')) {
-          try { f = decodeURIComponent(escape(f)); } catch (e) {}
-        }
-        return f;
-      } catch (e) { return s; }
-    };
+    /* TEXTES — on garde tous les noms de gares (11 et 18px), on masque
+       uniquement les parasites :
+         - titres ("Cluster Lille", "Schéma simplifié…")
+         - échelle ("0 km", "20 km", "Nord")
+         - tous les textes du cluster zoomé (< 10px : déjà trop petits)
+       Le reste (les vrais noms de gares à 11 et 18px) reste visible. */
+    svg.querySelectorAll('text').forEach(t => {
+      const fs = parseFloat(t.getAttribute('font-size') || '0');
+      const inner = t.textContent.trim();
+      const isClusterTitle = inner === 'Cluster Lille' || inner.startsWith('Schéma');
+      const isLegend = inner === 'Nord' || inner === '0 km' || inner === '20 km';
+      const isTiny = fs > 0 && fs < 10;       // cluster zoom détails
+      if (isClusterTitle || isLegend || isTiny) {
+        t.style.display = 'none';
+      } else {
+        // On homogénéise la fonte vers Manrope (Myriad Pro n'est pas dispo dans le navigateur)
+        t.style.fontFamily = 'Manrope, system-ui, sans-serif';
+        t.style.fontWeight = '500';
+        t.style.letterSpacing = '-0.01em';
+        // Halo blanc fin pour la lisibilité quand le texte passe sur des lignes/zones
+        t.style.paintOrder = 'stroke fill';
+        t.setAttribute('stroke', '#FAF8F3');
+        t.setAttribute('stroke-width', '2.5');
+        t.setAttribute('stroke-linejoin', 'round');
+      }
+    });
 
     // ⚠ Belgique au-dessus des zones flux : on la déplace tout à la fin du svg.
-    // En SVG, l'ordre du DOM = z-index, donc le dernier élément est dessiné par-dessus.
     const belgique = svg.querySelector('#Belgique');
     if (belgique && svg.lastElementChild !== belgique) {
       svg.appendChild(belgique);
     }
 
-    // ⚠ Cluster Lille : légère transparence sur le fond blanc pour ne pas masquer
-    // ce qu'il y a derrière, ET le déplacer à la fin pour qu'il reste au-dessus.
+    // ⚠ Cluster Lille : légère transparence, et le déplacer après Belgique
     const cluster = svg.querySelector('#Cluster_Lille');
     if (cluster) {
       cluster.style.opacity = '0.93';
-      // On le bouge à la fin AVANT le layer labels (qu'on créera plus bas)
       if (svg.lastElementChild !== cluster) svg.appendChild(cluster);
-    }
-
-    // ⚠ Layer dédié pour les labels de gares — appendé en DERNIER au svg root,
-    // donc les labels passent au-dessus de toutes les lignes, zones, autres g.
-    let labelsLayer = svg.querySelector('#nm-labels-layer');
-    if (!labelsLayer) {
-      labelsLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-      labelsLayer.setAttribute('id', 'nm-labels-layer');
-      labelsLayer.style.pointerEvents = 'none';
-      svg.appendChild(labelsLayer);
-    } else if (svg.lastElementChild !== labelsLayer) {
-      svg.appendChild(labelsLayer); // toujours en dernier
     }
 
     /* Texte plein-texte : on ne garde QUE les labels >=14px ; tout le reste
@@ -4160,61 +4159,11 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
       uni.setAttribute('stroke', stroke);
       uni.setAttribute('stroke-width', String(strokeW));
 
-      // Label : nom de la gare — affiché SEULEMENT pour la gare "primaire" (sans
-      // digit final dans l'id) et HORS du Cluster Lille (pour éviter les doublons).
-      // Le label est placé dans labelsLayer (en haut du z-order) pour passer
-      // au-dessus de toutes les lignes/zones.
-      const isPrimary = (id === baseId);
-      const inCluster = !!g.closest('#Cluster_Lille');
-      const labelKey = `nm-label-${baseId}`;
-      let label = labelsLayer.querySelector(`[data-key="${labelKey}"]`);
-
-      if (isPrimary && !inCluster && uni) {
-        const rawLabel = g.getAttribute('inkscape:label')
-          || g.getAttribute('data-name')
-          || baseId.replace(/^gare-/, '').replace(/-/g, ' ');
-        const cleanLabel = fixUtfEncoding(rawLabel);
-        const cxN = Number(uni.getAttribute('cx'));
-        const cyN = Number(uni.getAttribute('cy'));
-
-        if (!label) {
-          label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-          label.setAttribute('class', 'nm-label');
-          label.setAttribute('data-key', labelKey);
-          label.setAttribute('text-anchor', 'middle');
-          label.setAttribute('font-family', 'Manrope, system-ui, sans-serif');
-          label.setAttribute('stroke', '#FAF8F3');
-          label.setAttribute('stroke-linejoin', 'round');
-          label.setAttribute('paint-order', 'stroke fill');
-          label.style.pointerEvents = 'none';
-          label.style.letterSpacing = '-0.02em';
-          labelsLayer.appendChild(label);
-        }
-        label.setAttribute('x', String(cxN));
-        label.setAttribute('y', String(cyN + th.gareR + 14));
-        label.textContent = cleanLabel;
-
-        // Style selon statut
-        if (status === 'wip') {
-          label.setAttribute('fill', '#C8102E');
-          label.setAttribute('font-size', '15');
-          label.setAttribute('font-weight', '700');
-          label.setAttribute('stroke-width', '3');
-        } else if (status === 'done') {
-          label.setAttribute('fill', '#1D5E3A');
-          label.setAttribute('font-size', '15');
-          label.setAttribute('font-weight', '700');
-          label.setAttribute('stroke-width', '3');
-        } else {
-          label.setAttribute('fill', '#6B6259');
-          label.setAttribute('font-size', '10');
-          label.setAttribute('font-weight', '500');
-          label.setAttribute('stroke-width', '2');
-        }
-      } else if (label && !isPrimary) {
-        // Si on tombe sur un duplicata avec un label déjà créé par la primaire,
-        // on touche à rien — la primaire a fait le boulot.
-      }
+      // ⚠ PAS DE LABELS CUSTOM — on garde les <text> natifs du SVG qui ont
+      // les bons noms (avec accents propres) aux bonnes positions.
+      // Si un label custom avait été créé par une version précédente, on le retire.
+      const oldLabel = g.querySelector(':scope > text.nm-label');
+      if (oldLabel) oldLabel.remove();
 
       // Halo radar : un cercle qui s'agrandit + s'estompe, uniquement sur les WIP
       let halo = g.querySelector(':scope > circle.nm-radar');
@@ -4230,6 +4179,41 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
       } else if (halo) {
         halo.remove();
       }
+    });
+
+    /* COLORATION DES NOMS DES GARES VISITÉES — on parcourt les <text> natifs
+       et on colore ceux qui correspondent au nom d'une gare wip/done.
+       Matching insensible aux accents/casse via normalisation. */
+    const normalize = (s) => (s || '')
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '');
+
+    // Construit map: nom-normalisé → statut
+    const nameStatusMap = {};
+    Object.keys(statuses).forEach(id => {
+      const baseId = id.replace(/[0-9]+$/, '');
+      const baseName = baseId.replace(/^gare-/, '').replace(/-/g, '');
+      // Nettoyer aussi pour gérer "r-ux" → "Rœux" (œ vire en o)
+      nameStatusMap[normalize(baseName)] = statuses[id];
+    });
+
+    // Appliquer la couleur aux <text> qui matchent
+    svg.querySelectorAll('text').forEach(t => {
+      const txt = t.textContent.trim();
+      const status = nameStatusMap[normalize(txt)];
+      if (status === 'wip') {
+        t.setAttribute('fill', '#C8102E');
+        t.setAttribute('font-weight', '700');
+      } else if (status === 'done') {
+        t.setAttribute('fill', '#1D5E3A');
+        t.setAttribute('font-weight', '700');
+      }
+      // Les <tspan> internes peuvent aussi avoir un fill, on les force
+      t.querySelectorAll('tspan').forEach(ts => {
+        if (status === 'wip') { ts.setAttribute('fill', '#C8102E'); ts.setAttribute('font-weight', '700'); }
+        else if (status === 'done') { ts.setAttribute('fill', '#1D5E3A'); ts.setAttribute('font-weight', '700'); }
+      });
     });
   }, [loaded, JSON.stringify(statuses), JSON.stringify(theme), JSON.stringify(show)]);
 
