@@ -12,6 +12,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1250,7 +1251,9 @@ function Stamp({ children, color = 'var(--red)' }) {
 
 
 /* ============================================================
-   HERO ACCUEIL — sobre, sans carte
+   HERO ACCUEIL — Plein-bleed Atlas (Variant C)
+   La carte EST le hero, edge to edge.
+   Salutation + KPI + CTA dessous.
    ============================================================ */
 function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, totalGares, onPick, onOpen, onExportAll }) {
   const mine = visites.filter(v => v.auteur === auteur);
@@ -1259,186 +1262,349 @@ function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, to
     const g = GARES.find(x => x.nom === v.gare);
     return g && visiteStats(g, v.data).pct < 100;
   }).length;
+  const pctReseau = totalGares > 0 ? Math.round((fullyDone / totalGares) * 100) : 0;
 
+  // Construit l'objet statuses pour la carte : { 'gare-lille-flandres': 'done', ... }
+  const statuses = useMemo(() => {
+    const out = {};
+    GARES.forEach((g) => {
+      const v = all[g.nom];
+      if (!v) return;
+      const pct = visiteStats(g, v.data).pct;
+      if (pct === 100) out[_gareSlug(g.nom)] = 'done';
+      else if (pct > 0) out[_gareSlug(g.nom)] = 'wip';
+    });
+    return out;
+  }, [all]);
 
-
-  const ribbon = GARES.map((g) => {
-    const v = all[g.nom];
-    if (!v) return 'todo';
-    const pct = visiteStats(g, v.data).pct;
-    return pct === 100 ? 'done' : 'wip';
+  const todayShort = new Date().toLocaleDateString('fr-FR', {
+    weekday: 'long', day: 'numeric', month: 'long'
   });
 
   return (
-    <div style={{ position: 'relative', overflow: 'hidden', background: 'var(--paper-light)' }}>
-      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none',
-        backgroundImage:
-          'radial-gradient(ellipse 600px 400px at 100% 0%, rgba(200,16,46,0.05), transparent 60%),' +
-          'radial-gradient(ellipse 500px 300px at 0% 100%, rgba(217,211,196,0.4), transparent 60%)'
-      }} />
+    <div style={{ background: 'var(--paper-light)' }}>
 
-      <div style={{ position: 'relative', padding: '22px 22px 18px' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-          marginBottom: 18, fontSize: 9.5, letterSpacing:'0.16em', color:'var(--taupe)',
-          textTransform:'uppercase' }}>
-          <span>◆&nbsp;&nbsp;Carnet · SERM Hauts-de-France</span>
-          <span style={{ fontWeight:600 }}>{new Date().toLocaleDateString('fr-FR', { day:'2-digit', month:'short' })}</span>
+      {/* ── HERO PLEIN-BLEED CARTE ── */}
+      <div style={{ position: 'relative', background: 'var(--paper)',
+        borderBottom: '1px solid var(--border)' }}>
+
+        {/* La carte elle-même, aspect ratio fixe */}
+        <div style={{ width: '100%', aspectRatio: '1600 / 1200',
+          position: 'relative', overflow: 'hidden' }}>
+          <NetworkMap statuses={statuses} />
         </div>
 
-        <h1 style={{ fontFamily:'var(--font-display)', fontSize: 30, fontWeight: 700,
-          letterSpacing:'-0.025em', lineHeight: 1.05, margin: 0 }}>
-          Salut{' '}<span style={{ color:'var(--red)' }}>{auteur}</span>.
-        </h1>
+        {/* Gradient overlay vers le bas pour lisibilité du texte */}
+        <div style={{
+          position: 'absolute', left: 0, right: 0, bottom: 0,
+          height: '55%', pointerEvents: 'none',
+          background: 'linear-gradient(to bottom, transparent 0%, rgba(250,248,243,0.65) 50%, var(--paper-light) 92%)'
+        }} />
 
-        <div style={{ fontSize: 13, color:'var(--ink-soft)', marginTop: 12, lineHeight: 1.5 }}>
+        {/* Compteur Réseau glassmorphism — top-right */}
+        <div style={{
+          position: 'absolute', top: 14, right: 14,
+          background: 'rgba(255,255,255,0.85)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          border: '1px solid var(--border)',
+          padding: '8px 11px 7px', borderRadius: 2,
+          display: 'flex', alignItems: 'center', gap: 10,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+        }}>
+          <ProgressRing pct={pctReseau} size={36} stroke={3} color="var(--red)" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <div style={{ fontSize: 9.5, letterSpacing: '0.14em',
+              textTransform: 'uppercase', fontWeight: 700, color: 'var(--taupe)' }}>Réseau</div>
+            <div className="tabular" style={{ fontSize: 11, fontWeight: 600 }}>
+              <b>{fullyDone}</b><span style={{ color: 'var(--taupe-light)' }}> / {totalGares}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Légende bottom-left */}
+        <div style={{
+          position: 'absolute', bottom: 14, left: 18,
+          display: 'flex', gap: 12, fontSize: 9, letterSpacing: '0.1em',
+          textTransform: 'uppercase', fontWeight: 700, color: 'var(--ink-soft)'
+        }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)' }} /> Validée
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)',
+              animation: 'sermBlink 1.6s ease-in-out infinite' }} /> En cours
+          </span>
+        </div>
+
+        {/* Salutation OVERLAY sur le bas de la carte */}
+        <div style={{
+          position: 'absolute', left: 0, right: 0, bottom: -2,
+          padding: '0 22px 16px', zIndex: 2
+        }}>
+          <div style={{
+            fontSize: 9.5, letterSpacing: '0.18em', textTransform: 'uppercase',
+            color: 'var(--taupe)', fontWeight: 700, marginBottom: 6
+          }}>◆ {todayShort}</div>
+          <h1 style={{
+            fontFamily: 'var(--font-display)', fontSize: 36, fontWeight: 700,
+            letterSpacing: '-0.035em', lineHeight: 0.95, margin: 0
+          }}>
+            Salut <span style={{ color: 'var(--red)' }}>{auteur}</span>.
+          </h1>
+        </div>
+      </div>
+
+      {/* ── Sub-line ── */}
+      <div style={{ padding: '14px 22px 0' }}>
+        <div style={{ fontSize: 13.5, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
           {mineOpen > 0
-            ? <>Tu as <b style={{ color:'var(--ink)' }}>{mineOpen}</b> visite{mineOpen>1?'s':''} en cours.</>
+            ? <><b style={{ color: 'var(--ink)' }}>{mineOpen}</b> visite{mineOpen > 1 ? 's' : ''} en cours.{' '}</>
             : visited === 0
-              ? <>Première visite ? Choisis une gare et c'est parti.</>
-              : <>Tout est à jour de ton côté.</>}
+              ? <>Première visite ? Choisis une gare et c'est parti.{' '}</>
+              : <>Tout est à jour de ton côté.{' '}</>}
           {lastMine && mineOpen > 0 && (
-            <> Reprends&nbsp;
+            <>Reprends&nbsp;
               <button onClick={() => onOpen(lastMine.gare)} style={{
-                color:'var(--red)', fontWeight:600, textDecoration:'underline',
-                textUnderlineOffset:'2px'
+                color: 'var(--red)', fontWeight: 600, textDecoration: 'underline',
+                textUnderlineOffset: '2px'
               }}>{lastMine.gare} →</button>
             </>
           )}
         </div>
+      </div>
 
-        {/* SCOREBOARD — 3 cellules claires : validées / en cours / restantes */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap: 8, margin:'22px 0 14px' }}>
-          <div style={{
-            background:'var(--white)', border:'1px solid var(--border)',
-            borderTop: '3px solid var(--green)', borderRadius: 2, padding:'12px 12px 10px'
-          }}>
-            <div className="tabular" style={{ fontFamily:'var(--font-display)', fontWeight:700,
-              fontSize: 32, lineHeight: 1, letterSpacing:'-0.04em', color:'var(--ink)' }}>{fullyDone}</div>
-            <div style={{ fontSize: 9.5, letterSpacing:'0.14em', textTransform:'uppercase',
-              color:'var(--green)', fontWeight:700, marginTop: 6 }}>Validée{fullyDone>1?'s':''}</div>
-            <div style={{ fontSize:10, color:'var(--taupe)', marginTop:2 }}>tous critères OK</div>
-          </div>
-          <div style={{
-            background:'var(--white)', border:'1px solid var(--border)',
-            borderTop: '3px solid var(--red)', borderRadius: 2, padding:'12px 12px 10px',
-            position:'relative', overflow:'hidden'
-          }}>
-            <div className="tabular" style={{ fontFamily:'var(--font-display)', fontWeight:700,
-              fontSize: 32, lineHeight: 1, letterSpacing:'-0.04em', color:'var(--ink)' }}>{inProgress}</div>
-            <div style={{ fontSize: 9.5, letterSpacing:'0.14em', textTransform:'uppercase',
-              color:'var(--red)', fontWeight:700, marginTop: 6, display:'flex', alignItems:'center', gap:5 }}>
-              <span style={{ width:6, height:6, borderRadius:'50%', background:'var(--red)',
-                animation:'sermBlink 1.4s ease-in-out infinite' }}/>
-              En cours
-            </div>
-            <div style={{ fontSize:10, color:'var(--taupe)', marginTop:2 }}>à terminer</div>
-          </div>
-          <div style={{
-            background:'var(--paper)', border:'1px dashed var(--border)',
-            borderRadius: 2, padding:'12px 12px 10px'
-          }}>
-            <div className="tabular" style={{ fontFamily:'var(--font-display)', fontWeight:700,
-              fontSize: 32, lineHeight: 1, letterSpacing:'-0.04em', color:'var(--taupe)' }}>{totalGares - visited}</div>
-            <div style={{ fontSize: 9.5, letterSpacing:'0.14em', textTransform:'uppercase',
-              color:'var(--taupe)', fontWeight:700, marginTop: 6 }}>À visiter</div>
-            <div style={{ fontSize:10, color:'var(--taupe-light)', marginTop:2 }}>sur {totalGares} gares</div>
-          </div>
-        </div>
-
-        {/* RIBBON + label clair */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom: 6 }}>
-            <span style={{ fontSize: 10, letterSpacing:'0.12em', textTransform:'uppercase',
-              color:'var(--ink)', fontWeight:700 }}>Avancement réseau</span>
-            <span className="tabular" style={{ fontSize: 11, color:'var(--ink-soft)', fontWeight:600 }}>
-              <b style={{ color:'var(--ink)' }}>{visited}</b>
-              <span style={{ color:'var(--taupe-light)' }}> sur {totalGares} gares</span>
-              <span style={{ color:'var(--taupe)' }}> · {Math.round(visited/totalGares*100)}%</span>
-            </span>
-          </div>
-          <div style={{ height: 10, display:'flex', gap: 2, padding: '1px',
-            background:'var(--paper-deep)', border:'1px solid var(--border)', borderRadius: 1 }}>
-            {ribbon.map((s, i) => (
-              <div key={i} style={{
-                flex: 1,
-                background: s === 'done' ? 'var(--green)'
-                          : s === 'wip'  ? 'var(--red)'
-                          : 'transparent',
-                animation: s === 'wip' ? 'sermBlink 2s ease-in-out infinite' : 'none'
-              }} />
-            ))}
-          </div>
-        </div>
-
-        <button onClick={onPick} className="serm-cta" style={{
-          width:'100%', padding:'20px 22px',
-          background:'var(--red)', color:'var(--paper-light)',
-          fontFamily:'var(--font-display)', fontSize: 17, fontWeight: 600,
-          letterSpacing:'0.04em',
-          borderRadius: 2, position:'relative', overflow:'hidden',
-          boxShadow:'0 14px 32px -10px rgba(200,16,46,0.55), 0 2px 0 rgba(0,0,0,0.08)',
-          display:'flex', alignItems:'center', justifyContent:'space-between', gap: 10,
-          transition:'transform .15s ease, box-shadow .15s ease'
-        }}
-          onMouseDown={(e)=>{ e.currentTarget.style.transform='translateY(1px)'; }}
-          onMouseUp={(e)=>{ e.currentTarget.style.transform='translateY(0)'; }}
-          onMouseLeave={(e)=>{ e.currentTarget.style.transform='translateY(0)'; }}>
-          {/* shimmer band */}
-          <span aria-hidden style={{
-            position:'absolute', top:0, bottom:0, width:'40%', left:'-50%',
-            background:'linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent)',
-            animation:'sermShine 3.5s ease-in-out infinite'
-          }}/>
-          <span style={{ display:'flex', alignItems:'center', gap: 14, position:'relative' }}>
-            <span style={{ width: 32, height: 32, borderRadius:'50%',
-              background:'rgba(245,242,235,0.22)', display:'flex', alignItems:'center',
-              justifyContent:'center', fontSize: 20, fontWeight: 300, lineHeight:1 }}>+</span>
-            <span style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:2 }}>
-              <span>Démarrer une visite</span>
-              <span style={{ fontSize:10, fontWeight:500, letterSpacing:'0.14em',
-                textTransform:'uppercase', opacity:0.75 }}>Choisir une gare →</span>
-            </span>
-          </span>
-          <span style={{ fontSize: 18, opacity: 0.9, position:'relative' }}>→</span>
-        </button>
-
-        {/* CTA secondaire : Export — visible et accessible */}
-        <button onClick={onExportAll} style={{
-          width:'100%', padding:'12px 18px', marginTop: 10,
-          background:'var(--ink)', color:'var(--paper-light)',
-          fontFamily:'var(--font-display)', fontSize: 14, fontWeight: 600,
-          letterSpacing:'0.03em', borderRadius: 2,
-          display:'flex', alignItems:'center', justifyContent:'space-between', gap: 10,
-          border: '1px solid var(--ink)'
+      {/* ── KPI row 3 colonnes ── */}
+      <div style={{
+        padding: '18px 22px 0', display: 'grid',
+        gridTemplateColumns: '1fr 1fr 1fr', gap: 8
+      }}>
+        <div style={{
+          background: 'var(--white)', border: '1px solid var(--border)',
+          borderTop: '3px solid var(--green)', borderRadius: 2, padding: '12px 12px 10px'
         }}>
-          <span style={{ display:'flex', alignItems:'center', gap: 10 }}>
-            <span style={{ fontSize: 17 }}>⇣</span>
-            <span>Exporter les données</span>
+          <div className="tabular" style={{
+            fontFamily: 'var(--font-display)', fontWeight: 700,
+            fontSize: 32, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--ink)'
+          }}>{fullyDone}</div>
+          <div style={{
+            fontSize: 9.5, letterSpacing: '0.14em', textTransform: 'uppercase',
+            color: 'var(--green)', fontWeight: 700, marginTop: 6
+          }}>Validée{fullyDone > 1 ? 's' : ''}</div>
+          <div style={{ fontSize: 10, color: 'var(--taupe)', marginTop: 2 }}>tous critères OK</div>
+        </div>
+        <div style={{
+          background: 'var(--white)', border: '1px solid var(--border)',
+          borderTop: '3px solid var(--red)', borderRadius: 2, padding: '12px 12px 10px',
+          position: 'relative', overflow: 'hidden'
+        }}>
+          <div className="tabular" style={{
+            fontFamily: 'var(--font-display)', fontWeight: 700,
+            fontSize: 32, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--ink)'
+          }}>{inProgress}</div>
+          <div style={{
+            fontSize: 9.5, letterSpacing: '0.14em', textTransform: 'uppercase',
+            color: 'var(--red)', fontWeight: 700, marginTop: 6,
+            display: 'flex', alignItems: 'center', gap: 5
+          }}>
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%', background: 'var(--red)',
+              animation: 'sermBlink 1.6s ease-in-out infinite'
+            }} />
+            En cours
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--taupe)', marginTop: 2 }}>à terminer</div>
+        </div>
+        <div style={{
+          background: 'var(--paper)', border: '1px dashed var(--border)',
+          borderRadius: 2, padding: '12px 12px 10px'
+        }}>
+          <div className="tabular" style={{
+            fontFamily: 'var(--font-display)', fontWeight: 700,
+            fontSize: 32, lineHeight: 1, letterSpacing: '-0.04em', color: 'var(--taupe)'
+          }}>{totalGares - visited}</div>
+          <div style={{
+            fontSize: 9.5, letterSpacing: '0.14em', textTransform: 'uppercase',
+            color: 'var(--taupe)', fontWeight: 700, marginTop: 6
+          }}>À visiter</div>
+          <div style={{ fontSize: 10, color: 'var(--taupe-light)', marginTop: 2 }}>sur {totalGares}</div>
+        </div>
+      </div>
+
+      {/* ── CTA Démarrer une visite — full red ── */}
+      <div style={{ padding: '18px 22px 6px' }}>
+        <button onClick={onPick} className="serm-cta" style={{
+          width: '100%', padding: '17px 20px',
+          background: 'var(--red)', color: 'var(--paper-light)',
+          fontFamily: 'inherit', fontSize: 15.5, fontWeight: 600,
+          letterSpacing: '0.03em', borderRadius: 2,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          boxShadow: '0 14px 28px -10px rgba(200,16,46,0.55)'
+        }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{
+              width: 28, height: 28, borderRadius: '50%',
+              background: 'rgba(245,242,235,0.22)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 18, fontWeight: 300
+            }}>+</span>
+            <span style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1
+            }}>
+              <span>Démarrer une visite</span>
+              <span style={{
+                fontSize: 9.5, fontWeight: 500, letterSpacing: '0.14em',
+                textTransform: 'uppercase', opacity: 0.75
+              }}>Choisir une gare</span>
+            </span>
           </span>
-          <span style={{ fontSize: 10, fontWeight: 500, letterSpacing:'0.12em',
-            textTransform:'uppercase', opacity: 0.7 }}>
-            {visited} visite{visited > 1 ? 's' : ''} · CSV / Excel / JSON
-          </span>
+          <span style={{ fontSize: 18 }}>→</span>
         </button>
         <style>{`
           @keyframes sermBlink {
             0%, 100% { opacity: 1; }
-            50% { opacity: 0.55; }
+            50% { opacity: 0.45; }
           }
-          @keyframes sermShine {
-            0% { left: -50%; }
-            55%, 100% { left: 110%; }
+          .serm-cta:active {
+            transform: translateY(2px);
+            box-shadow: 0 6px 18px -8px rgba(200,16,46,0.6);
           }
-          .serm-cta:active { transform: translateY(2px) !important; box-shadow: 0 6px 18px -8px rgba(200,16,46,0.6) !important; }
         `}</style>
       </div>
     </div>
   );
 }
 
+
 /* ============================================================
    HOME SCREEN
    ============================================================ */
+/* ============================================================
+   NETWORK MAP — Carte du réseau SERM Hauts-de-France
+   ============================================================
+   Charge ./carte-hdf.svg une fois (cache module-level), l'injecte,
+   et applique les statuts par gare (done/wip/todo).
+   Si le SVG n'est pas accessible (404), affiche un fallback discret.
+   ============================================================ */
+const _gareSlug = (nom) => 'gare-' + nom
+  .toLowerCase()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/œ/g, 'oe')
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-|-$/g, '');
+
+let _mapSvgPromise = null;
+const loadMapSvg = () => {
+  if (!_mapSvgPromise) {
+    _mapSvgPromise = fetch('./carte-hdf.svg')
+      .then((r) => r.ok ? r.text() : null)
+      .catch(() => null);
+  }
+  return _mapSvgPromise;
+};
+
+function NetworkMap({ statuses = {}, style = {} }) {
+  const ref = useRef(null);
+  const [state, setState] = useState('loading'); // 'loading' | 'ok' | 'missing'
+
+  useEffect(() => {
+    let off = false;
+    loadMapSvg().then((svg) => {
+      if (off || !ref.current) return;
+      if (!svg) { setState('missing'); return; }
+      ref.current.innerHTML = svg;
+      const root = ref.current.querySelector('svg');
+      if (root) {
+        root.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        root.style.width = '100%';
+        root.style.height = '100%';
+        root.style.display = 'block';
+      }
+      setState('ok');
+    });
+    return () => { off = true; };
+  }, []);
+
+  // Apply visibility + statuses each time it changes
+  useEffect(() => {
+    if (state !== 'ok' || !ref.current) return;
+    const svg = ref.current.querySelector('svg');
+    if (!svg) return;
+
+    const setHidden = (selector, hidden) => {
+      svg.querySelectorAll(selector).forEach((el) => { el.style.display = hidden ? 'none' : ''; });
+    };
+    // Masquer le superflu pour un rendu épuré
+    setHidden('[id^="sg-textes"]', true);
+    setHidden('[id^="sg-decorations-1"], [id^="sg-decorations-3"], [id^="sg-decorations-4"], [id^="sg-decorations-5"], [id^="sg-decorations-6"]', true);
+    setHidden('#Cluster_Lille', true);
+    setHidden('[id^="sg-numeros-lignes"]', true);
+    setHidden('#Belgique', true);
+
+    // Adoucir les zones de flux
+    svg.querySelectorAll('#zone_flux path').forEach((p) => {
+      p.style.fillOpacity = 0.22;
+      p.style.strokeOpacity = 0.4;
+    });
+    // Lignes ferroviaires en taupe doux
+    svg.querySelectorAll('[id^="sg-lignes-ferroviaires"] path').forEach((p) => {
+      p.setAttribute('stroke', '#8B8680');
+    });
+    svg.querySelectorAll('[id^="sg-lignes-hors-zone"] path').forEach((p) => {
+      p.setAttribute('stroke', '#8B8680');
+      p.style.strokeOpacity = 0.18;
+    });
+    // Contour HDF en ink soft
+    svg.querySelectorAll('[id^="sg-contour-hdf"] path').forEach((p) => {
+      p.setAttribute('stroke', '#3D3D3D');
+      p.setAttribute('fill', 'transparent');
+    });
+
+    // Statuts des gares : done=vert, wip=rouge, todo=blanc bordé
+    const allGares = svg.querySelectorAll('[id^="gare-"]');
+    allGares.forEach((g) => {
+      const id = g.getAttribute('id');
+      const status = statuses[id] || 'todo';
+      let fill, stroke, strokeW;
+      if (status === 'done') { fill = '#1D5E3A'; stroke = '#1D5E3A'; strokeW = 2.2; }
+      else if (status === 'wip') { fill = '#C8102E'; stroke = '#C8102E'; strokeW = 2.2; }
+      else { fill = '#FFFFFF'; stroke = '#9B9690'; strokeW = 1.5; }
+      g.querySelectorAll('path, circle').forEach((p) => {
+        p.setAttribute('fill', fill);
+        p.setAttribute('stroke', stroke);
+        p.setAttribute('stroke-width', String(strokeW));
+        p.style.transition = 'fill .25s, stroke .25s';
+      });
+      // Léger scale up pour les gares visitées
+      if (status !== 'todo') {
+        g.style.transformOrigin = 'center';
+        g.style.transformBox = 'fill-box';
+        g.style.transform = 'scale(1.3)';
+      }
+    });
+  }, [state, JSON.stringify(statuses)]);
+
+  return (
+    <div style={{ width: '100%', height: '100%', position: 'relative', ...style }}>
+      <div ref={ref} style={{ width: '100%', height: '100%' }} />
+      {state === 'loading' &&
+      <div style={{
+        position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 11, color: 'var(--taupe)', fontStyle: 'italic'
+      }}>Chargement de la carte…</div>}
+      {state === 'missing' &&
+      <div style={{
+        position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexDirection: 'column', gap: 6,
+        fontSize: 11, color: 'var(--taupe)', textAlign: 'center', padding: 20
+      }}>
+        <div style={{ fontSize: 24, opacity: 0.4 }}>🗺</div>
+        <div>Carte non chargée — vérifier que <code>carte-hdf.svg</code> est dans le repo</div>
+      </div>}
+    </div>
+  );
+}
+
 function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, syncing, editMode, onToggleEdit, onRestoreGrille, readOnly, isOnline, pendingCount, retryingPhotos, gridRev }) {
   const visites = Object.values(all).sort((a, b) => b.updated - a.updated);
   const totalGares = GARES.length;
@@ -2239,6 +2405,8 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
               <option value="Soleil">Soleil</option>
               <option value="Couvert">Couvert</option>
               <option value="Pluie">Pluie</option>
+              <option value="Neige">Neige</option>
+              <option value="Brouillard">Brouillard</option>
             </select>
           </label>
         </div>
@@ -3305,7 +3473,7 @@ function OverviewScreen({ gare, visite, onBack, onZone, onExport, onPrintPDF, on
 /* ============================================================
    EXPORT SCREEN — choix scope (toutes / cette gare / sélection) × format (CSV / Excel / JSON)
    ============================================================ */
-function ExportScreen({ all, onBack, onExport, onExportPhotos, onPrintPDF, syncing }) {
+function ExportScreen({ all, onBack, onExport, onExportPhotos, onPrintPDF, onExportPPTX, syncing }) {
   const visitesAll = Object.values(all).sort((a, b) => b.updated - a.updated);
   const [scope, setScope] = useState('all'); // 'all' | 'select' | 'completed' | 'in_progress'
   const [format, setFormat] = useState('xlsx'); // 'xlsx' | 'csv' | 'json'
@@ -3582,6 +3750,64 @@ function ExportScreen({ all, onBack, onExport, onExportPhotos, onPrintPDF, synci
             )}
             <p style={{ fontSize: 10.5, color: 'var(--taupe)', marginTop: 8, lineHeight: 1.4 }}>
               Clique sur une gare pour ouvrir l'aperçu, puis utilise <strong>Imprimer / PDF</strong> en haut à droite.
+            </p>
+          </div>
+        )}
+
+        {/* ========================================================
+            FICHE PPTX PAR GARE — style AREP, 12-15 slides détaillées
+            ======================================================== */}
+        {onExportPPTX && (
+          <div style={{ marginTop: 32, paddingTop: 22, borderTop: '1px dashed var(--border)' }}>
+            <div className="kicker" style={{ color: 'var(--taupe)', fontSize: 10, marginBottom: 10 }}>
+              Fiche PPTX
+            </div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6, letterSpacing: '-0.015em' }}>
+              Fiche PowerPoint par gare — charte AREP
+            </h3>
+            <p style={{ fontSize: 12, color: 'var(--ink-soft)', lineHeight: 1.5, marginBottom: 12 }}>
+              Format 16:9 style fiche AREP (OISSEL) : page de garde, identification, synthèse,
+              une slide par section avec photos.
+              {' '}<strong>Génération longue</strong> si beaucoup de photos (téléchargement requis).
+            </p>
+            {visitesAll.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--taupe)', fontStyle: 'italic',
+                padding: '12px', textAlign: 'center', background: 'var(--paper-deep)' }}>
+                Aucune gare visitée pour l'instant
+              </div>
+            ) : (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 2,
+                maxHeight: 280, overflowY: 'auto' }}>
+                {visitesAll.map((v, i) => {
+                  const g = GARES.find(x => x.nom === v.gare);
+                  const st = g ? visiteStats(g, v.data) : { pct: 0 };
+                  const nPhotos = (() => {
+                    let n = 0;
+                    Object.values(v.data || {}).forEach(d => { if (d?.photos?.length) n += d.photos.length; });
+                    return n;
+                  })();
+                  return (
+                    <button key={v.gare} onClick={() => onExportPPTX(v.gare)} style={{
+                      width: '100%', padding: '10px 14px',
+                      borderBottom: i === visitesAll.length - 1 ? 'none' : '1px solid var(--border-soft)',
+                      textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+                      background: 'var(--white)'
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 500 }}>{v.gare}</div>
+                        <div style={{ fontSize: 10, color: 'var(--taupe)', marginTop: 2 }}>
+                          {v.auteur || 'Anonyme'} · {st.pct}% complétée
+                          {nPhotos > 0 && <> · {nPhotos} photo{nPhotos > 1 ? 's' : ''}</>}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 600 }}>📊 Générer →</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <p style={{ fontSize: 10.5, color: 'var(--taupe)', marginTop: 8, lineHeight: 1.4 }}>
+              Le fichier <code>.pptx</code> sera téléchargé directement. Ouvre-le ensuite dans PowerPoint, Keynote ou Google Slides.
             </p>
           </div>
         )}
@@ -4258,7 +4484,7 @@ function App() {
   const buildExcelPretty = async (visites, safeName, today) => {
     if (!window.ExcelJS) throw new Error('ExcelJS non chargé');
     const wb = new window.ExcelJS.Workbook();
-    wb.creator = 'SERM HDF · AREP';
+    wb.creator = 'SERM HDF · AREP × G&C';
     wb.created = new Date();
 
     // ============= ONGLET 1 : Base de données =============
@@ -4523,7 +4749,7 @@ function App() {
       ['', ''],
       ['SOURCE', ''],
       ['Outil', "Saisie via l'app SERM HDF (HTML + Supabase). Cet Excel est généré à l'export."],
-      ['Contact', 'Tony BEGO — AREP Conseil & Programmation']
+      ['Contact', 'Tony BÉGO — AREP Programmation · SNCF G&C']
     ];
     let rMode = 6;
     modeContent.forEach((line) => {
@@ -4549,6 +4775,527 @@ function App() {
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     downloadBlob(blob, `${safeName}_${today}.xlsx`);
   };
+
+  /* ===========================================================
+     EXPORT PPTX AREP — Fiche de relevé terrain par gare
+     Style strict charte AREP : Segoe UI, rouge AREP, layout 16:9.
+     Structure : Garde / Identif / Synthèse / 1 slide par section / Cover.
+     Photos incluses à côté des critères (grille 2x2).
+     =========================================================== */
+
+  const AREP_COL = {
+    RED:       'C8102E',
+    RED_DARK:  '801618',
+    RED_LIGHT: 'F7D2D1',
+    INK:       '1A1A1A',
+    INK_SOFT:  '3D3D3D',
+    GRAY:      '6B6259',
+    GRAY_LT:   'BFB9AC',
+    BORDER:    'D9D3C4',
+    PAPER:     'F5F2EB',
+    PAPER_LT:  'FAF8F3',
+    GREEN:     '1D5E3A',
+    GREEN_LT:  'E3EBE4',
+    BLUE:      '1B515D',
+    ORANGE:    'D17B0F',
+    BUREAU:    '2B3A4A'
+  };
+
+  // Fetch + cache pour photos PPTX (réutilise data déjà téléchargée si possible)
+  const fetchPhotoForPptx = async (url) => {
+    try {
+      if (url.startsWith('data:')) return url;
+      const resp = await fetch(url);
+      const blob = await resp.blob();
+      return new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = rej;
+        r.readAsDataURL(blob);
+      });
+    } catch (e) { return null; }
+  };
+
+  const buildPptxAREP = async (gare, visite, auteur) => {
+    if (!window.PptxGenJS) throw new Error('PptxGenJS non chargé');
+    const pres = new window.PptxGenJS();
+    pres.layout = 'LAYOUT_WIDE';                 // 13.33 x 7.5 inches
+    pres.title = `Fiche SERM HDF - ${gare.nom}`;
+    pres.author = auteur || 'AREP';
+    pres.company = 'AREP × SNCF G&C';
+    pres.subject = 'Relevé terrain SERM Hauts-de-France';
+
+    // ===== Helpers communs à toutes les slides ============================
+
+    // Footer + numéro de page + mini logo AREP (présent sur toutes les slides
+    // sauf garde et couverture finale)
+    const addFooter = (slide, pageNum, totalPages) => {
+      const today = new Date().toLocaleDateString('fr-FR');
+      slide.addText(
+        [{ text: 'SERM HDF', options: { bold: true, color: AREP_COL.INK } },
+         { text: `  ·  ${gare.nom}  ·  généré le ${today}`, options: { color: AREP_COL.GRAY } }],
+        { x: 0.4, y: 7.15, w: 10, h: 0.25, fontSize: 8, fontFace: 'Segoe UI' }
+      );
+      slide.addText(`page ${pageNum}/${totalPages}`, {
+        x: 11.5, y: 7.15, w: 1.5, h: 0.25,
+        fontSize: 8, color: AREP_COL.GRAY, fontFace: 'Segoe UI', align: 'right'
+      });
+      // Logo AREP rouge en bas droite
+      slide.addText('AREP', {
+        x: 12.7, y: 6.85, w: 0.6, h: 0.3,
+        fontSize: 14, color: AREP_COL.RED, bold: true,
+        fontFace: 'Segoe UI Semibold', align: 'right'
+      });
+    };
+
+    // En-tête commun de slide section : kicker "N. SECTION" + titre + sous-titre + ligne rouge
+    const addHeader = (slide, kicker, title, subtitle, accentColor) => {
+      const acc = accentColor || AREP_COL.RED;
+      if (kicker) {
+        slide.addText(kicker, {
+          x: 0.4, y: 0.35, w: 6, h: 0.25,
+          fontSize: 10, color: acc, bold: true,
+          fontFace: 'Segoe UI Semibold', charSpacing: 2
+        });
+      }
+      slide.addText(title, {
+        x: 0.4, y: 0.6, w: 12, h: 0.55,
+        fontSize: 24, color: AREP_COL.INK, bold: true,
+        fontFace: 'Segoe UI Semibold'
+      });
+      if (subtitle) {
+        slide.addText(subtitle, {
+          x: 0.4, y: 1.15, w: 12, h: 0.35,
+          fontSize: 12, color: AREP_COL.INK_SOFT,
+          fontFace: 'Segoe UI'
+        });
+      }
+      // Trait rouge sous le header
+      slide.addShape('rect', {
+        x: 0.4, y: subtitle ? 1.55 : 1.25, w: 0.6, h: 0.04,
+        fill: { color: acc }, line: { type: 'none' }
+      });
+    };
+
+    // ===== Pré-calcul des sections + photos pour estimer le nb de pages ====
+    const sectionsToRender = SECTIONS.filter(s => {
+      const items = (s.criteria || []).filter(c => c.type !== 'subhead' && c.type !== 'text');
+      return items.length > 0;
+    });
+    // 1 garde + 1 identif + 1 synthèse + N sections + 1 final
+    const totalPages = 3 + sectionsToRender.length + 1;
+
+    // ===== Récupération de toutes les photos en parallèle =================
+    // (Pour permettre l'affichage progressif des slides)
+    const photoUrls = [];
+    sectionsToRender.forEach(s => {
+      (s.criteria || []).forEach(c => {
+        const raw = visite.data?.[c.id];
+        if (raw?.photos?.length) {
+          raw.photos.forEach(p => photoUrls.push({ url: p.url, label: c.label }));
+        }
+      });
+    });
+
+    const photoCache = {};
+    if (photoUrls.length) {
+      setPdfStatus({ stage: 'Téléchargement des photos…', current: 0, total: photoUrls.length });
+      const BATCH = 4;
+      for (let i = 0; i < photoUrls.length; i += BATCH) {
+        const batch = photoUrls.slice(i, i + BATCH);
+        const results = await Promise.all(batch.map(p => fetchPhotoForPptx(p.url)));
+        batch.forEach((p, k) => { photoCache[p.url] = results[k]; });
+        setPdfStatus({ stage: 'Téléchargement des photos…', current: Math.min(i + BATCH, photoUrls.length), total: photoUrls.length });
+      }
+      setPdfStatus({ stage: 'Génération du PPTX…', current: 0, total: totalPages });
+    }
+
+    // ====================================================================
+    // SLIDE 1 — PAGE DE GARDE
+    // ====================================================================
+    {
+      const s = pres.addSlide();
+      s.background = { color: 'FFFFFF' };
+      // Bande verticale rouge à gauche (motif récurrent AREP)
+      s.addShape('rect', {
+        x: 0, y: 0, w: 0.25, h: 7.5,
+        fill: { color: AREP_COL.RED }, line: { type: 'none' }
+      });
+      // Étiquette "AREP" tout en haut gauche
+      s.addText('AREP', {
+        x: 0.6, y: 0.5, w: 1.5, h: 0.4,
+        fontSize: 12, color: AREP_COL.RED, bold: true,
+        fontFace: 'Segoe UI Semibold'
+      });
+      s.addText('SERM Hauts-de-France', {
+        x: 0.6, y: 0.85, w: 5, h: 0.3,
+        fontSize: 10, color: AREP_COL.GRAY,
+        fontFace: 'Segoe UI Semibold', charSpacing: 3
+      });
+
+      // Sur-titre et titre côté droit
+      s.addText('Fiche de relevé terrain', {
+        x: 5.8, y: 2.2, w: 7.2, h: 0.5,
+        fontSize: 18, color: AREP_COL.GRAY,
+        fontFace: 'Segoe UI'
+      });
+      s.addText(gare.nom, {
+        x: 5.8, y: 2.8, w: 7.2, h: 1.6,
+        fontSize: 54, color: AREP_COL.RED, bold: true,
+        fontFace: 'Segoe UI Semibold', valign: 'top'
+      });
+
+      // Métadonnées en encart à droite
+      const visiteDateStr = visite?.data?.visite_date
+        ? new Date(visite.data.visite_date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+        : new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+      s.addShape('rect', {
+        x: 5.8, y: 4.8, w: 6.8, h: 1.5,
+        fill: { color: AREP_COL.PAPER_LT }, line: { color: AREP_COL.BORDER, width: 0.5 }
+      });
+      s.addText([
+        { text: 'DATE DE VISITE\n', options: { fontSize: 8, color: AREP_COL.GRAY, bold: true, charSpacing: 2 } },
+        { text: visiteDateStr + '\n\n', options: { fontSize: 13, color: AREP_COL.INK } },
+        { text: 'ENQUÊTEUR(S)\n', options: { fontSize: 8, color: AREP_COL.GRAY, bold: true, charSpacing: 2 } },
+        { text: (visite?.auteur || auteur || '—'), options: { fontSize: 13, color: AREP_COL.INK } }
+      ], {
+        x: 6, y: 4.9, w: 6.4, h: 1.3,
+        fontFace: 'Segoe UI'
+      });
+
+      // Bande type "OISSEL" : étiquette rouge avec nom de catégorie
+      s.addShape('rect', {
+        x: 0.6, y: 5.8, w: 4.8, h: 0.6,
+        fill: { color: AREP_COL.RED }, line: { type: 'none' }
+      });
+      s.addText(((gare.cat_pro || 'SERM HDF') + '').toUpperCase(), {
+        x: 0.6, y: 5.8, w: 4.8, h: 0.6,
+        fontSize: 14, color: 'FFFFFF', bold: true,
+        fontFace: 'Segoe UI Semibold', align: 'center', valign: 'middle'
+      });
+
+      // Logo AREP bas droite (gros)
+      s.addText('AREP', {
+        x: 11.7, y: 6.75, w: 1.5, h: 0.5,
+        fontSize: 22, color: AREP_COL.RED, bold: true,
+        fontFace: 'Segoe UI Semibold', align: 'right'
+      });
+    }
+
+    // ====================================================================
+    // SLIDE 2 — FICHE D'IDENTIFICATION
+    // ====================================================================
+    {
+      const s = pres.addSlide();
+      s.background = { color: 'FFFFFF' };
+      addHeader(s, '', "Fiche d'identification", null);
+
+      // Colonne gauche : Identité de la gare
+      s.addText('IDENTITÉ DE LA GARE', {
+        x: 0.4, y: 1.7, w: 6, h: 0.3,
+        fontSize: 9, color: AREP_COL.RED, bold: true,
+        fontFace: 'Segoe UI Semibold', charSpacing: 2
+      });
+      const idTable = [
+        ['Nom de gare',    gare.nom],
+        ['UIC',            String(gare.uic || '—')],
+        ['Catégorie SGP',  gare.cat_sgp || '—'],
+        ['Catégorie Pro',  gare.cat_pro || '—'],
+        ['Secteur UG',     gare.secteur || '—'],
+        ['Axe',            gare.axe || '—'],
+        ['Ligne flux',     gare.ligne_flux || '—']
+      ];
+      s.addTable(idTable.map(([k, v]) => [
+        { text: k, options: { bold: true, color: AREP_COL.GRAY, fontSize: 10, valign: 'middle' } },
+        { text: v, options: { color: AREP_COL.INK, fontSize: 11, valign: 'middle' } }
+      ]), {
+        x: 0.4, y: 2.05, w: 6.2, colW: [2.2, 4],
+        border: { type: 'solid', pt: 0.5, color: AREP_COL.BORDER },
+        fontFace: 'Segoe UI', rowH: 0.35
+      });
+
+      // Colonne droite : Contexte visite + Prestataire
+      s.addText('CONTEXTE DE LA VISITE', {
+        x: 6.9, y: 1.7, w: 6, h: 0.3,
+        fontSize: 9, color: AREP_COL.RED, bold: true,
+        fontFace: 'Segoe UI Semibold', charSpacing: 2
+      });
+      const stats = visiteStats(gare, visite.data);
+      const visTable = [
+        ['Date de visite',  visite?.data?.visite_date || '—'],
+        ['Météo',           visite?.data?.visite_meteo || '—'],
+        ['Enquêteur(s)',    visite?.auteur || auteur || '—'],
+        ['Complétion',      `${stats.pct}%  (${stats.filled} / ${stats.total} critères)`]
+      ];
+      s.addTable(visTable.map(([k, v]) => [
+        { text: k, options: { bold: true, color: AREP_COL.GRAY, fontSize: 10, valign: 'middle' } },
+        { text: v, options: { color: AREP_COL.INK, fontSize: 11, valign: 'middle' } }
+      ]), {
+        x: 6.9, y: 2.05, w: 6, colW: [2.2, 3.8],
+        border: { type: 'solid', pt: 0.5, color: AREP_COL.BORDER },
+        fontFace: 'Segoe UI', rowH: 0.35
+      });
+
+      // Encart prestataire AREP en bas
+      s.addShape('rect', {
+        x: 0.4, y: 5.4, w: 6.2, h: 1.4,
+        fill: { color: AREP_COL.RED_LIGHT }, line: { type: 'none' }
+      });
+      s.addText('PRESTATAIRE', {
+        x: 0.6, y: 5.5, w: 5.8, h: 0.25,
+        fontSize: 9, color: AREP_COL.RED_DARK, bold: true,
+        fontFace: 'Segoe UI Semibold', charSpacing: 2
+      });
+      s.addText('AREP SAS — Direction Conseil et Programmation\n16, Avenue d\'Ivry — 75647 PARIS Cedex 13\ncontactPRG@arep.fr', {
+        x: 0.6, y: 5.8, w: 5.8, h: 1,
+        fontSize: 10, color: AREP_COL.INK, fontFace: 'Segoe UI'
+      });
+
+      s.addShape('rect', {
+        x: 6.9, y: 5.4, w: 6, h: 1.4,
+        fill: { color: AREP_COL.PAPER_LT }, line: { color: AREP_COL.BORDER, width: 0.5 }
+      });
+      s.addText("MAÎTRE D'OUVRAGE", {
+        x: 7.1, y: 5.5, w: 5.6, h: 0.25,
+        fontSize: 9, color: AREP_COL.GRAY, bold: true,
+        fontFace: 'Segoe UI Semibold', charSpacing: 2
+      });
+      s.addText('SNCF Gares & Connexions\nDRG Hauts-de-France — Normandie', {
+        x: 7.1, y: 5.8, w: 5.6, h: 1,
+        fontSize: 10, color: AREP_COL.INK, fontFace: 'Segoe UI'
+      });
+
+      addFooter(s, 2, totalPages);
+    }
+
+    // ====================================================================
+    // SLIDE 3 — SYNTHÈSE GLOBALE
+    // ====================================================================
+    {
+      const s = pres.addSlide();
+      s.background = { color: 'FFFFFF' };
+      addHeader(s, 'BILAN', 'Synthèse globale', null);
+
+      const stats = visiteStats(gare, visite.data);
+
+      // Gros pourcentage à gauche
+      s.addText(`${stats.pct}%`, {
+        x: 0.4, y: 2.2, w: 4.5, h: 2.5,
+        fontSize: 130, color: AREP_COL.RED, bold: true,
+        fontFace: 'Segoe UI Semibold', align: 'center', valign: 'middle'
+      });
+      s.addText('Complétion de la fiche', {
+        x: 0.4, y: 4.6, w: 4.5, h: 0.3,
+        fontSize: 12, color: AREP_COL.GRAY,
+        fontFace: 'Segoe UI', align: 'center'
+      });
+      s.addText(`${stats.filled} critères remplis sur ${stats.total}`, {
+        x: 0.4, y: 4.9, w: 4.5, h: 0.3,
+        fontSize: 11, color: AREP_COL.INK_SOFT,
+        fontFace: 'Segoe UI', align: 'center', italic: true
+      });
+
+      // Tableau par section à droite
+      const headerRow = [
+        { text: 'Section', options: { bold: true, fill: { color: AREP_COL.INK }, color: 'FFFFFF', fontSize: 10, valign: 'middle' } },
+        { text: 'Remplis', options: { bold: true, fill: { color: AREP_COL.INK }, color: 'FFFFFF', fontSize: 10, valign: 'middle', align: 'center' } },
+        { text: 'Total',   options: { bold: true, fill: { color: AREP_COL.INK }, color: 'FFFFFF', fontSize: 10, valign: 'middle', align: 'center' } },
+        { text: '%',       options: { bold: true, fill: { color: AREP_COL.INK }, color: 'FFFFFF', fontSize: 10, valign: 'middle', align: 'center' } }
+      ];
+      const secRows = sectionsToRender.map(sec => {
+        const items = (sec.criteria || []).filter(c => c.type !== 'subhead' && c.type !== 'text');
+        let filled = 0;
+        items.forEach(c => {
+          const r = visite.data?.[c.id];
+          if (r != null && (r.na === true || getVal(r) != null)) filled++;
+        });
+        const pct = items.length ? Math.round(filled / items.length * 100) : 0;
+        const c = pct === 100 ? AREP_COL.GREEN : pct > 0 ? AREP_COL.RED : AREP_COL.GRAY_LT;
+        return [
+          { text: `${String(Math.floor(sec.n)).padStart(2, '0')} · ${sec.title}`,
+            options: { fontSize: 10, color: AREP_COL.INK, valign: 'middle' } },
+          { text: String(filled), options: { fontSize: 10, align: 'center', valign: 'middle' } },
+          { text: String(items.length), options: { fontSize: 10, align: 'center', valign: 'middle', color: AREP_COL.GRAY_LT } },
+          { text: `${pct}%`, options: { fontSize: 11, bold: true, align: 'center', valign: 'middle', color: c } }
+        ];
+      });
+      s.addTable([headerRow, ...secRows], {
+        x: 5.5, y: 1.85, w: 7.4,
+        colW: [3.9, 1.1, 1.1, 1.3],
+        border: { type: 'solid', pt: 0.4, color: AREP_COL.BORDER },
+        fontFace: 'Segoe UI', rowH: 0.36
+      });
+
+      addFooter(s, 3, totalPages);
+    }
+
+    // ====================================================================
+    // SLIDES 4..N — UNE PAR SECTION
+    // ====================================================================
+    let pageNum = 4;
+    for (const sec of sectionsToRender) {
+      const items = (sec.criteria || []).filter(c => c.type !== 'subhead' && c.type !== 'text');
+      if (items.length === 0) continue;
+
+      const slide = pres.addSlide();
+      slide.background = { color: 'FFFFFF' };
+      // Couleur d'accent selon la section (bureau = bleu marine, sinon rouge)
+      const accent = sec.bureau ? AREP_COL.BUREAU : AREP_COL.RED;
+      const kicker = `${String(Math.floor(sec.n)).padStart(2, '0')} · ${sec.title.toUpperCase()}`;
+      addHeader(slide, kicker, sec.title, sec.subtitle || null, accent);
+
+      // Compteur section en haut droite
+      let secFilled = 0;
+      items.forEach(c => {
+        const r = visite.data?.[c.id];
+        if (r != null && (r.na === true || getVal(r) != null)) secFilled++;
+      });
+      slide.addText([
+        { text: String(secFilled), options: { fontSize: 28, bold: true, color: accent } },
+        { text: ` / ${items.length}`, options: { fontSize: 14, color: AREP_COL.GRAY_LT } }
+      ], {
+        x: 10.5, y: 0.55, w: 2.5, h: 0.6,
+        fontFace: 'Segoe UI Semibold', align: 'right', valign: 'top'
+      });
+      slide.addText('critères remplis', {
+        x: 10.5, y: 1.05, w: 2.5, h: 0.25,
+        fontSize: 8, color: AREP_COL.GRAY,
+        fontFace: 'Segoe UI', align: 'right', charSpacing: 2
+      });
+
+      // Récupère les photos de cette section
+      const secPhotos = [];
+      items.forEach(c => {
+        const raw = visite.data?.[c.id];
+        if (raw?.photos?.length) {
+          raw.photos.forEach(p => secPhotos.push({ url: p.url, label: c.label, criterionId: c.id }));
+        }
+      });
+      const hasPhotos = secPhotos.length > 0;
+
+      // Largeur colonne tableau : pleine si pas de photos, sinon ~60%
+      const tableW = hasPhotos ? 7.5 : 12.5;
+      const tableX = 0.4;
+      const tableY = 1.85;
+
+      // Construit le tableau critère / valeur / note
+      const critRows = items.map(c => {
+        const raw = visite.data?.[c.id];
+        const val = formatValForExcel(c, raw);
+        const hasVal = val && val !== '';
+        const hasNote = raw?.note;
+        const cellVal = [];
+        if (hasVal) cellVal.push({ text: val, options: { bold: true, color: AREP_COL.INK } });
+        else cellVal.push({ text: '—', options: { color: AREP_COL.GRAY_LT } });
+        if (hasNote) cellVal.push({ text: '\n' + raw.note, options: { italic: true, fontSize: 8, color: AREP_COL.GRAY } });
+
+        return [
+          { text: c.label, options: { fontSize: 9, color: AREP_COL.INK_SOFT, valign: 'middle' } },
+          { text: cellVal, options: { fontSize: 9.5, valign: 'middle', fontFace: 'Segoe UI' } }
+        ];
+      });
+
+      // Si trop de lignes (>20), on coupe et on prévient
+      const MAX_ROWS = 22;
+      const showRows = critRows.slice(0, MAX_ROWS);
+      slide.addTable(showRows, {
+        x: tableX, y: tableY, w: tableW,
+        colW: hasPhotos ? [4.3, 3.2] : [7, 5.5],
+        border: { type: 'solid', pt: 0.3, color: AREP_COL.BORDER },
+        fontFace: 'Segoe UI', rowH: 0.22
+      });
+      if (critRows.length > MAX_ROWS) {
+        slide.addText(`(+${critRows.length - MAX_ROWS} critère${critRows.length - MAX_ROWS > 1 ? 's' : ''} non affiché${critRows.length - MAX_ROWS > 1 ? 's' : ''} — voir Excel ou PDF)`, {
+          x: tableX, y: 6.6, w: tableW, h: 0.25,
+          fontSize: 8, italic: true, color: AREP_COL.GRAY, fontFace: 'Segoe UI'
+        });
+      }
+
+      // Photos en grille 2x2 à droite (max 4)
+      if (hasPhotos) {
+        const px0 = 8.1, py0 = 1.85;
+        const pw = 2.3, ph = 1.65, gx = 0.15, gy = 0.45;
+        const max = Math.min(secPhotos.length, 4);
+        for (let i = 0; i < max; i++) {
+          const row = Math.floor(i / 2);
+          const col = i % 2;
+          const x = px0 + col * (pw + gx);
+          const y = py0 + row * (ph + gy);
+          const dataUrl = photoCache[secPhotos[i].url];
+          if (dataUrl) {
+            slide.addImage({
+              data: dataUrl,
+              x, y, w: pw, h: ph,
+              sizing: { type: 'cover', w: pw, h: ph }
+            });
+          } else {
+            slide.addShape('rect', {
+              x, y, w: pw, h: ph,
+              fill: { color: AREP_COL.PAPER }, line: { color: AREP_COL.BORDER, width: 0.5 }
+            });
+            slide.addText('photo indisponible', {
+              x, y, w: pw, h: ph,
+              fontSize: 8, color: AREP_COL.GRAY_LT, fontFace: 'Segoe UI',
+              align: 'center', valign: 'middle', italic: true
+            });
+          }
+          // Caption sous la photo
+          const cap = secPhotos[i].label.length > 32 ? secPhotos[i].label.slice(0, 30) + '…' : secPhotos[i].label;
+          slide.addText(cap, {
+            x, y: y + ph + 0.03, w: pw, h: 0.3,
+            fontSize: 7, color: AREP_COL.GRAY, fontFace: 'Segoe UI',
+            italic: true, valign: 'top'
+          });
+        }
+        if (secPhotos.length > 4) {
+          slide.addText(`+${secPhotos.length - 4} autres photos dans le ZIP photothèque`, {
+            x: px0, y: 6.6, w: 4.8, h: 0.25,
+            fontSize: 8, italic: true, color: AREP_COL.GRAY, fontFace: 'Segoe UI'
+          });
+        }
+      }
+
+      addFooter(slide, pageNum, totalPages);
+      pageNum++;
+      setPdfStatus({ stage: 'Génération du PPTX…', current: pageNum, total: totalPages });
+    }
+
+    // ====================================================================
+    // SLIDE FINALE — COUVERTURE AREP
+    // ====================================================================
+    {
+      const s = pres.addSlide();
+      s.background = { color: 'FFFFFF' };
+      // Gros logo AREP centré
+      s.addText('AREP', {
+        x: 5, y: 3, w: 3.33, h: 1.2,
+        fontSize: 72, color: AREP_COL.RED, bold: true,
+        fontFace: 'Segoe UI Semibold', align: 'center'
+      });
+      s.addText('www.arep.fr', {
+        x: 5, y: 4.2, w: 3.33, h: 0.3,
+        fontSize: 12, color: AREP_COL.GRAY,
+        fontFace: 'Segoe UI', align: 'center'
+      });
+      s.addText(`Fiche SERM HDF · ${gare.nom}`, {
+        x: 0, y: 6.7, w: 13.33, h: 0.25,
+        fontSize: 9, color: AREP_COL.GRAY_LT,
+        fontFace: 'Segoe UI', align: 'center', italic: true
+      });
+      s.addText(`Document généré le ${new Date().toLocaleDateString('fr-FR')} · usage interne projet`, {
+        x: 0, y: 6.95, w: 13.33, h: 0.25,
+        fontSize: 8, color: AREP_COL.GRAY_LT,
+        fontFace: 'Segoe UI', align: 'center'
+      });
+    }
+
+    // ===== Écriture et téléchargement ====================================
+    const safeGare = gare.nom.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
+    const today = new Date().toISOString().slice(0, 10);
+    const filename = `Fiche_SERM_HDF_${safeGare}_${today}.pptx`;
+    await pres.writeFile({ fileName: filename });
+  };
+
 
   /* ===== EXPORT PHOTOS — ZIP rangé par Gare / Section / Question ===== */
   const exportPhotosZip = async (visites) => {
@@ -4706,7 +5453,7 @@ function App() {
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
-    doc.text('AREP - SERM HAUTS-DE-FRANCE', MARGIN, 7);
+    doc.text('AREP x G&C - SERM HAUTS-DE-FRANCE', MARGIN, 7);
     doc.setFontSize(16);
     doc.text(gare.nom, MARGIN, 15);
     doc.setFontSize(8);
@@ -4943,14 +5690,14 @@ function App() {
             background: 'var(--red)', color: 'white',
             padding: '3px 10px', display: 'inline-block',
             fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', marginBottom: 16
-          }}>AREP </div>
+          }}>AREP × G&C</div>
           <h1 style={{
             fontSize: 24, fontWeight: 700, letterSpacing: '-0.025em',
             marginBottom: 6, lineHeight: 1.15
           }}>SERM Hauts-de-France</h1>
           <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 24, lineHeight: 1.45 }}>
             Outil de relevé terrain — accès réservé à l'équipe projet.
-            Saisis le mot de passe.
+            Saisis le mot de passe communiqué par Tony pour continuer.
           </p>
           <input
             type="password"
@@ -4980,6 +5727,7 @@ function App() {
             Déverrouiller
           </button>
           <p style={{ fontSize: 10.5, color: 'var(--taupe)', marginTop: 18, lineHeight: 1.5 }}>
+            En cas d'oubli, contacte Tony Bégo (AREP Programmation).
           </p>
         </div>
       </div>
@@ -5019,6 +5767,20 @@ function App() {
           const g = GARES.find(x => x.nom === gareName);
           const v = all[gareName];
           if (g && v) buildPDFForGare(g, v);
+        }}
+        onExportPPTX={async (gareName) => {
+          const g = GARES.find(x => x.nom === gareName);
+          const v = all[gareName];
+          if (!g || !v) return;
+          try {
+            await buildPptxAREP(g, v, auteur);
+            setPdfStatus(null);
+            showToast(`Fiche PPTX ${g.nom} générée ✓`, 'success');
+          } catch (e) {
+            console.error('Export PPTX:', e);
+            setPdfStatus(null);
+            showToast('Erreur génération PPTX : ' + e.message, 'error');
+          }
         }}
         pdfStatus={pdfStatus}
         syncing={syncing} />
@@ -5141,7 +5903,7 @@ function PrintScreen({ gare, visite, onBack }) {
           display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div>
             <div style={{ background: '#C8102E', color: 'white', padding: '2px 6px', display: 'inline-block',
-              fontSize: 8.5, fontWeight: 700, letterSpacing: '0.18em', marginBottom: 4 }}>AREP · SERM HDF</div>
+              fontSize: 8.5, fontWeight: 700, letterSpacing: '0.18em', marginBottom: 4 }}>AREP × G&C · SERM HDF</div>
             <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{gare.nom}</h1>
             <div style={{ fontSize: 9, color: '#666', marginTop: 1 }}>
               {gare.cat_pro} · {gare.cat_sgp} · ligne {gare.ligne_flux} · {gare.secteur}
@@ -5253,7 +6015,7 @@ function PrintScreen({ gare, visite, onBack }) {
         {/* FOOTER */}
         <div style={{ marginTop: 24, paddingTop: 8, borderTop: '1px solid #ccc',
           fontSize: 7.5, color: '#888', textAlign: 'center' }}>
-          Fiche générée le {new Date().toLocaleString('fr-FR')} · SERM Hauts-de-France · AREP 
+          Fiche générée le {new Date().toLocaleString('fr-FR')} · SERM Hauts-de-France · AREP × Gares & Connexions
         </div>
       </div>
     </div>
