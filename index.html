@@ -3996,9 +3996,18 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
     setHidden('#Belgique', !sh.belgique);
     setHidden('#zone_flux', !sh.zones);
     setHidden('[id^="sg-fond-pays"]', true);
-    // ⚠ Ronds blancs natifs des gares (sg-gares-1..34) qui sont parallèles aux groupes gare-xxx
-    // → on les masque sinon ils cachent nos ronds NetworkMap (cas visible sur Tourcoing/Roubaix)
-    setHidden('[id^="sg-gares"]', true);
+    // ⚠ sg-gares-* sont des petits cabochons décoratifs (traits courts noirs)
+    // → on les garde, ils participent au style schéma SERM
+
+    // ⚠ Belgique doit être dessinée AU-DESSUS des zones flux pour
+    // ne pas être recouverte par les couleurs de secteur HDF.
+    // En SVG l'ordre du DOM = z-index, donc on bouge Belgique en dernier.
+    const belgique = svg.querySelector('#Belgique');
+    if (belgique && belgique.parentNode === svg.firstChild?.parentNode) {
+      // déjà placée, ne rien faire
+    } else if (belgique) {
+      svg.appendChild(belgique);
+    }
 
     /* Texte plein-texte : on ne garde QUE les labels >=14px ; tout le reste
        (numeros de ligne, échelle km, titre cluster, petits labels Arial) est caché. */
@@ -4068,6 +4077,18 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
       const baseId = id.replace(/[0-9]+$/, '');
       const status = statuses[id] || statuses[baseId] || 'todo';
 
+      // ⚠ Masquage RADICAL et REPETÉ des paths natifs à chaque exécution
+      // (pas juste à la création du nm-uni) car certains paths ont des stroke
+      // épais (Tourcoing/Roubaix avec stroke-width=12.43) qui passaient à travers
+      // le simple style.display='none'. setAttribute force vraiment le hide.
+      Array.from(g.children).forEach(el => {
+        if (el.classList && (el.classList.contains('nm-uni')
+            || el.classList.contains('nm-label')
+            || el.classList.contains('nm-radar'))) return;
+        el.setAttribute('display', 'none');
+        el.style.display = 'none';
+      });
+
       // Uniformisation : on remplace toutes les formes natives par UN seul
       // cercle centré sur la bbox de la forme originale. Une seule fois.
       let uni = g.querySelector(':scope > circle.nm-uni');
@@ -4076,11 +4097,16 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
         if (!ref) return;
         let cx, cy;
         try {
+          // Calcul bbox AVANT de masquer pour avoir des coords valides
+          // (un élément display:none retourne bbox vide)
+          ref.removeAttribute('display');
+          ref.style.display = '';
           const bbox = ref.getBBox();
           cx = bbox.x + bbox.width / 2;
           cy = bbox.y + bbox.height / 2;
+          ref.setAttribute('display', 'none');
+          ref.style.display = 'none';
         } catch (e) { return; }
-        Array.from(g.children).forEach(el => { el.style.display = 'none'; });
         uni = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         uni.setAttribute('class', 'nm-uni');
         uni.setAttribute('cx', String(cx));
