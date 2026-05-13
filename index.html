@@ -3996,17 +3996,46 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
     setHidden('#Belgique', !sh.belgique);
     setHidden('#zone_flux', !sh.zones);
     setHidden('[id^="sg-fond-pays"]', true);
-    // ⚠ sg-gares-* sont des petits cabochons décoratifs (traits courts noirs)
-    // → on les garde, ils participent au style schéma SERM
 
-    // ⚠ Belgique doit être dessinée AU-DESSUS des zones flux pour
-    // ne pas être recouverte par les couleurs de secteur HDF.
-    // En SVG l'ordre du DOM = z-index, donc on bouge Belgique en dernier.
+    // ⚠ Helper pour réparer le triple-encoding UTF-8 des labels Inkscape.
+    // "PÃƒÂ©renchies" → "Pérenchies" via 2 passes de unescape.
+    const fixUtfEncoding = (s) => {
+      if (!s || (!s.includes('Ã') && !s.includes('Â'))) return s;
+      try {
+        let f = decodeURIComponent(escape(s));
+        if (f.includes('Ã') || f.includes('Â')) {
+          try { f = decodeURIComponent(escape(f)); } catch (e) {}
+        }
+        return f;
+      } catch (e) { return s; }
+    };
+
+    // ⚠ Belgique au-dessus des zones flux : on la déplace tout à la fin du svg.
+    // En SVG, l'ordre du DOM = z-index, donc le dernier élément est dessiné par-dessus.
     const belgique = svg.querySelector('#Belgique');
-    if (belgique && belgique.parentNode === svg.firstChild?.parentNode) {
-      // déjà placée, ne rien faire
-    } else if (belgique) {
+    if (belgique && svg.lastElementChild !== belgique) {
       svg.appendChild(belgique);
+    }
+
+    // ⚠ Cluster Lille : légère transparence sur le fond blanc pour ne pas masquer
+    // ce qu'il y a derrière, ET le déplacer à la fin pour qu'il reste au-dessus.
+    const cluster = svg.querySelector('#Cluster_Lille');
+    if (cluster) {
+      cluster.style.opacity = '0.93';
+      // On le bouge à la fin AVANT le layer labels (qu'on créera plus bas)
+      if (svg.lastElementChild !== cluster) svg.appendChild(cluster);
+    }
+
+    // ⚠ Layer dédié pour les labels de gares — appendé en DERNIER au svg root,
+    // donc les labels passent au-dessus de toutes les lignes, zones, autres g.
+    let labelsLayer = svg.querySelector('#nm-labels-layer');
+    if (!labelsLayer) {
+      labelsLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      labelsLayer.setAttribute('id', 'nm-labels-layer');
+      labelsLayer.style.pointerEvents = 'none';
+      svg.appendChild(labelsLayer);
+    } else if (svg.lastElementChild !== labelsLayer) {
+      svg.appendChild(labelsLayer); // toujours en dernier
     }
 
     /* Texte plein-texte : on ne garde QUE les labels >=14px ; tout le reste
@@ -4131,20 +4160,27 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
       uni.setAttribute('stroke', stroke);
       uni.setAttribute('stroke-width', String(strokeW));
 
-      // Label : nom de la gare — affiché pour TOUTES les gares
-      // Style adapté selon le statut : gros et coloré pour visitées, petit et taupe pour à visiter
-      let label = g.querySelector(':scope > text.nm-label');
-      if (uni) {
+      // Label : nom de la gare — affiché SEULEMENT pour la gare "primaire" (sans
+      // digit final dans l'id) et HORS du Cluster Lille (pour éviter les doublons).
+      // Le label est placé dans labelsLayer (en haut du z-order) pour passer
+      // au-dessus de toutes les lignes/zones.
+      const isPrimary = (id === baseId);
+      const inCluster = !!g.closest('#Cluster_Lille');
+      const labelKey = `nm-label-${baseId}`;
+      let label = labelsLayer.querySelector(`[data-key="${labelKey}"]`);
+
+      if (isPrimary && !inCluster && uni) {
+        const rawLabel = g.getAttribute('inkscape:label')
+          || g.getAttribute('data-name')
+          || baseId.replace(/^gare-/, '').replace(/-/g, ' ');
+        const cleanLabel = fixUtfEncoding(rawLabel);
+        const cxN = Number(uni.getAttribute('cx'));
+        const cyN = Number(uni.getAttribute('cy'));
+
         if (!label) {
-          const inkLabel = g.getAttribute('inkscape:label')
-            || g.getAttribute('data-name')
-            || baseId.replace(/^gare-/, '').replace(/-/g, ' ');
-          const cxN = Number(uni.getAttribute('cx'));
-          const cyN = Number(uni.getAttribute('cy'));
           label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
           label.setAttribute('class', 'nm-label');
-          label.setAttribute('x', String(cxN));
-          label.setAttribute('y', String(cyN + th.gareR + 14));
+          label.setAttribute('data-key', labelKey);
           label.setAttribute('text-anchor', 'middle');
           label.setAttribute('font-family', 'Manrope, system-ui, sans-serif');
           label.setAttribute('stroke', '#FAF8F3');
@@ -4152,9 +4188,12 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
           label.setAttribute('paint-order', 'stroke fill');
           label.style.pointerEvents = 'none';
           label.style.letterSpacing = '-0.02em';
-          label.textContent = inkLabel;
-          g.appendChild(label);
+          labelsLayer.appendChild(label);
         }
+        label.setAttribute('x', String(cxN));
+        label.setAttribute('y', String(cyN + th.gareR + 14));
+        label.textContent = cleanLabel;
+
         // Style selon statut
         if (status === 'wip') {
           label.setAttribute('fill', '#C8102E');
@@ -4167,12 +4206,14 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
           label.setAttribute('font-weight', '700');
           label.setAttribute('stroke-width', '3');
         } else {
-          // À visiter : petit, taupe, halo blanc fin
           label.setAttribute('fill', '#6B6259');
           label.setAttribute('font-size', '10');
           label.setAttribute('font-weight', '500');
           label.setAttribute('stroke-width', '2');
         }
+      } else if (label && !isPrimary) {
+        // Si on tombe sur un duplicata avec un label déjà créé par la primaire,
+        // on touche à rien — la primaire a fait le boulot.
       }
 
       // Halo radar : un cercle qui s'agrandit + s'estompe, uniquement sur les WIP
