@@ -3804,6 +3804,102 @@ function Field({ label, children }) {
    APP
    ============================================================ */
 function App() {
+  // ===== VERROUILLAGE PAR MOT DE PASSE =====
+  // Hash SHA-256 du mot de passe actuel. Pour changer le mdp :
+  // 1) Choisis ton nouveau mdp
+  // 2) Calcule son SHA-256 (ex: en bash → echo -n "tonmdp" | sha256sum)
+  // 3) Remplace la valeur de PASSWORD_HASH ci-dessous
+  // 4) Tous les utilisateurs devront retaper le nouveau mdp
+  //
+  // Mot de passe actuel : "serm2026"
+  const PASSWORD_HASH = '00747ba10d726dd36a34abd14b331242cfa269471106365a03a176ff98363a86';
+  const UNLOCK_KEY = 'serm-hdf:unlocked-v1';
+
+  const [isUnlocked, setIsUnlocked] = useState(() => {
+    try { return localStorage.getItem(UNLOCK_KEY) === PASSWORD_HASH; }
+    catch (e) { return false; }
+  });
+  const [pwdInput, setPwdInput] = useState('');
+  const [pwdError, setPwdError] = useState(false);
+
+  const tryUnlock = async () => {
+    try {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwdInput));
+      const hash = Array.from(new Uint8Array(buf))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+      if (hash === PASSWORD_HASH) {
+        localStorage.setItem(UNLOCK_KEY, hash);
+        setIsUnlocked(true);
+        setPwdError(false);
+      } else {
+        setPwdError(true);
+        setPwdInput('');
+      }
+    } catch (e) {
+      setPwdError(true);
+    }
+  };
+
+  // Écran de verrouillage — affiché si l'utilisateur n'a pas encore saisi le bon mdp
+  if (!isUnlocked) {
+    return (
+      <div style={{
+        minHeight: '100dvh', background: 'var(--ink)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+      }}>
+        <div style={{
+          background: 'var(--paper-light)', borderRadius: 4,
+          padding: '32px 28px', maxWidth: 380, width: '100%',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.4)'
+        }}>
+          <div style={{
+            background: 'var(--red)', color: 'white',
+            padding: '3px 10px', display: 'inline-block',
+            fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', marginBottom: 16
+          }}>AREP × G&C</div>
+          <h1 style={{
+            fontSize: 24, fontWeight: 700, letterSpacing: '-0.025em',
+            marginBottom: 6, lineHeight: 1.15
+          }}>SERM Hauts-de-France</h1>
+          <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 24, lineHeight: 1.45 }}>
+            Outil de relevé terrain — accès réservé à l'équipe projet.
+            Saisis le mot de passe communiqué par Tony pour continuer.
+          </p>
+          <input
+            type="password"
+            value={pwdInput}
+            onChange={(e) => { setPwdInput(e.target.value); setPwdError(false); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') tryUnlock(); }}
+            autoFocus
+            placeholder="Mot de passe"
+            style={{
+              width: '100%', padding: '12px 14px', fontSize: 15, fontFamily: 'inherit',
+              border: `1.5px solid ${pwdError ? 'var(--red)' : 'var(--border)'}`,
+              borderRadius: 2, background: 'var(--white)',
+              outline: 'none', marginBottom: 4
+            }}
+          />
+          {pwdError &&
+          <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 4, marginBottom: 8 }}>
+            Mot de passe incorrect.
+          </div>
+          }
+          <button onClick={tryUnlock} style={{
+            marginTop: 14, width: '100%', padding: '13px',
+            background: 'var(--red)', color: 'var(--paper-light)',
+            fontWeight: 600, fontSize: 13.5, letterSpacing: '0.04em', textTransform: 'uppercase',
+            borderRadius: 2
+          }}>
+            Déverrouiller
+          </button>
+          <p style={{ fontSize: 10.5, color: 'var(--taupe)', marginTop: 18, lineHeight: 1.5 }}>
+            En cas d'oubli, contacte Tony Bégo (AREP Programmation).
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // Mode lecture seule activé via ?readonly=1 ou ?ro=1 dans l'URL
   // → désactive toutes les modifications, masque les boutons d'action
   const readOnly = useMemo(() => {
