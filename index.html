@@ -698,32 +698,108 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
     if (!opts.hd) toUpload = await compressImage(file);
   } catch (e) { console.warn('Compression failed, uploading original:', e); }
 
-  if (!supa) {
-    // Fallback local : data URL
+  // ── Fallback offline / pas de Supa : stocker en data URL avec flag pending
+  const goOffline = () => {
     return new Promise((resolve, reject) => {
       const r = new FileReader();
       r.onload = () => resolve({
         url: r.result, name: toUpload.name, local: true,
-        hd: !!opts.hd, size: toUpload.size, originalSize
+        // pending: true → cette photo doit être ré-uploadée quand le réseau revient
+        pending: !!supa, hd: !!opts.hd,
+        size: toUpload.size, originalSize,
+        critId, gareName // métadonnées pour retry
       });
       r.onerror = reject;
       r.readAsDataURL(toUpload);
     });
-  }
-  const ts = Date.now();
-  const safe = toUpload.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-40);
-  const slug = gareName.replace(/[^a-zA-Z0-9]/g, '_');
-  const hdTag = opts.hd ? '_HD' : '';
-  const path = `${slug}/${critId}${hdTag}_${ts}_${safe}`;
-  const { error } = await supa.storage.from('photos').upload(path, toUpload, {
-    contentType: toUpload.type, upsert: false
-  });
-  if (error) throw error;
-  const { data } = supa.storage.from('photos').getPublicUrl(path);
-  return {
-    url: data.publicUrl, path, name: toUpload.name,
-    hd: !!opts.hd, size: toUpload.size, originalSize
   };
+
+  // Si pas de Supabase ou pas de réseau → fallback direct
+  if (!supa || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+    return goOffline();
+  }
+
+  // Sinon on tente l'upload normal, avec fallback en cas d'erreur réseau
+  try {
+    const ts = Date.now();
+    const safe = toUpload.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-40);
+    const slug = gareName.replace(/[^a-zA-Z0-9]/g, '_');
+    const hdTag = opts.hd ? '_HD' : '';
+    const path = `${slug}/${critId}${hdTag}_${ts}_${safe}`;
+    const { error } = await supa.storage.from('photos').upload(path, toUpload, {
+      contentType: toUpload.type, upsert: false
+    });
+    if (error) throw error;
+    const { data } = supa.storage.from('photos').getPublicUrl(path);
+    return {
+      url: data.publicUrl, path, name: toUpload.name,
+      hd: !!opts.hd, size: toUpload.size, originalSize
+    };
+  } catch (e) {
+    console.warn('Upload failed, falling back offline:', e);
+    return goOffline();
+  }
+}
+
+// Retry des photos pending — parcourt all et tente l'upload des photos
+// stockées localement en data URL avec pending: true
+async function retryPendingPhotos(all, onProgress) {
+  if (!supa || (typeof navigator !== 'undefined' && navigator.onLine === false)) return all;
+  let changed = false;
+  const next = { ...all };
+  let totalPending = 0;
+  let totalDone = 0;
+  // Compter total pour le progress
+  Object.values(all).forEach(v => {
+    if (!v?.data) return;
+    Object.values(v.data).forEach(d => {
+      if (d && typeof d === 'object' && Array.isArray(d.photos)) {
+        d.photos.forEach(p => { if (p?.pending && p?.url?.startsWith('data:')) totalPending++; });
+      }
+    });
+  });
+  if (totalPending === 0) return all;
+  if (onProgress) onProgress(0, totalPending);
+
+  for (const [gareName, visite] of Object.entries(next)) {
+    if (!visite?.data) continue;
+    let visiteChanged = false;
+    const newData = { ...visite.data };
+    for (const [critId, value] of Object.entries(visite.data)) {
+      if (!value || typeof value !== 'object' || !Array.isArray(value.photos)) continue;
+      const newPhotos = [];
+      for (const p of value.photos) {
+        if (p?.pending && p?.url?.startsWith('data:')) {
+          try {
+            const resp = await fetch(p.url);
+            const blob = await resp.blob();
+            const file = new File([blob], p.name || 'photo.jpg', { type: blob.type });
+            const uploaded = await uploadPhoto(gareName, critId, file, { hd: p.hd });
+            if (uploaded.pending) {
+              // Toujours offline, on garde
+              newPhotos.push(p);
+            } else {
+              newPhotos.push(uploaded);
+              visiteChanged = true;
+              totalDone++;
+              if (onProgress) onProgress(totalDone, totalPending);
+            }
+          } catch (e) {
+            console.warn('Retry failed for', p.name, e);
+            newPhotos.push(p);
+          }
+        } else {
+          newPhotos.push(p);
+        }
+      }
+      if (visiteChanged) newData[critId] = { ...value, photos: newPhotos };
+    }
+    if (visiteChanged) {
+      next[gareName] = { ...visite, data: newData, updated: Date.now() };
+      changed = true;
+    }
+  }
+  return changed ? next : all;
 }
 
 async function deletePhoto(photo) {
@@ -1357,7 +1433,7 @@ function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, to
 /* ============================================================
    HOME SCREEN
    ============================================================ */
-function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, syncing, editMode, onToggleEdit, onRestoreGrille, gridRev }) {
+function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, syncing, editMode, onToggleEdit, onRestoreGrille, readOnly, isOnline, pendingCount, retryingPhotos, gridRev }) {
   const visites = Object.values(all).sort((a, b) => b.updated - a.updated);
   const totalGares = GARES.length;
   const visited = visites.length;
@@ -1370,6 +1446,37 @@ function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, 
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', background: 'var(--paper-light)', position: 'relative' }}>
+      {/* BANDEAU MODE CONSULTATION (URL ?readonly=1) */}
+      {readOnly &&
+      <div style={{
+        background: 'var(--bureau)', color: 'var(--paper-light)',
+        padding: '7px 14px', fontSize: 11.5, fontWeight: 600,
+        letterSpacing: '0.05em', textAlign: 'center',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        position: 'sticky', top: 0, zIndex: 11
+      }}>
+        <span>👁</span><span>Mode consultation — modifications désactivées</span>
+      </div>}
+
+      {/* BANDEAU OFFLINE / PENDING UPLOAD */}
+      {(!isOnline || retryingPhotos) &&
+      <div style={{
+        background: !isOnline ? 'var(--amber)' : 'var(--bureau)',
+        color: 'white', padding: '6px 14px', fontSize: 11, fontWeight: 600,
+        letterSpacing: '0.04em', textAlign: 'center',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        position: 'sticky', top: readOnly ? 32 : 0, zIndex: 10
+      }}>
+        {!isOnline && <>
+          <span>📡</span><span>Hors-ligne</span>
+          {pendingCount > 0 && <span> · {pendingCount} photo{pendingCount > 1 ? 's' : ''} en attente</span>}
+        </>}
+        {isOnline && retryingPhotos && <>
+          <span style={{ animation: 'sermSync 1s ease-in-out infinite' }}>⇡</span>
+          <span>Envoi des photos en attente · {retryingPhotos.done}/{retryingPhotos.total}</span>
+        </>}
+      </div>}
+
       {/* PAPER GRAIN OVERLAY */}
       <div style={{
         position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.4,
@@ -1909,9 +2016,9 @@ function StationProgress({ gare, visite, activeId }) {
 }
 
 
-function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onToast,
+function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
                       editMode, onToggleEdit, onEditCrit, onAddCrit, onDeleteCrit,
-                      onEditSection, onAddSection, onDeleteSection, gridRev }) {
+                      onEditSection, onAddSection, onDeleteSection, readOnly, gridRev }) {
   const sections = useMemo(
     () => SECTIONS.filter((s) => !s.skipIf || !s.skipIf(gare, visite.data)),
     // gridRev force le recalcul quand la grille est modifiée
@@ -2014,6 +2121,17 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--paper-light)', minHeight: 0 }}>
+      {/* BANDEAU MODE CONSULTATION */}
+      {readOnly &&
+      <div style={{
+        background: 'var(--bureau)', color: 'var(--paper-light)',
+        padding: '6px 14px', fontSize: 11, fontWeight: 600,
+        letterSpacing: '0.05em', textAlign: 'center', flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
+      }}>
+        <span>👁</span><span>Mode consultation — modifications désactivées</span>
+      </div>
+      }
       {/* TOP BAR */}
       <div style={{ background: 'var(--ink)', color: 'var(--paper)', padding: '12px 18px',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, gap: 8 }}>
@@ -2021,6 +2139,7 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
           ← <span className="kicker" style={{ fontSize: 10 }}>Carnet</span>
         </button>
         <div style={{ display: 'flex', gap: 6 }}>
+          {onToggleEdit &&
           <button onClick={onToggleEdit} title="Mode édition de la grille" style={{
             color: editMode ? 'var(--paper-light)' : 'var(--paper)',
             background: editMode ? 'var(--red)' : 'transparent',
@@ -2028,6 +2147,7 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
             border: `1px solid ${editMode ? 'var(--red)' : 'rgba(245,242,235,0.2)'}`,
             borderRadius: 2, fontWeight: 600
           }}>{editMode ? '✓ Édition' : '🛠'}</button>
+          }
           <button onClick={onOverview} style={{ color: 'var(--paper)', fontSize: 11, padding: '5px 10px',
             border: '1px solid rgba(245,242,235,0.2)', borderRadius: 2,
             display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2039,10 +2159,6 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
               Vue d'ensemble
             </span>
           </button>
-          <button onClick={onDelete} title="Supprimer cette visite" style={{
-            color: 'var(--paper)', fontSize: 13, padding: '5px 9px',
-            border: '1px solid rgba(245,242,235,0.2)', borderRadius: 2, opacity: 0.7
-          }}>🗑</button>
         </div>
       </div>
 
@@ -2077,6 +2193,41 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
             <StationProgress gare={gare} visite={visite} activeId={activeId} />
           </div>
         </div>
+
+        {/* ENCART CONTEXTE VISITE — toujours visible, indépendant de la grille */}
+        {!readOnly &&
+        <div style={{ padding: '0 14px 12px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <label style={{ flex: '1 1 140px', display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+            <span style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--taupe)',
+              textTransform: 'uppercase', letterSpacing: '0.08em' }}>📅 Date de visite</span>
+            <input type="date" value={visite.data?.visite_date || ''}
+              onChange={(e) => setVal('visite_date', e.target.value)}
+              style={{
+                padding: '7px 10px', fontSize: 13, fontFamily: 'inherit',
+                border: '1.5px solid var(--border)', borderRadius: 2,
+                background: 'var(--white)', outline: 'none'
+              }} />
+          </label>
+          <label style={{ flex: '1 1 140px', display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+            <span style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--taupe)',
+              textTransform: 'uppercase', letterSpacing: '0.08em' }}>☁ Météo</span>
+            <select value={visite.data?.visite_meteo || ''}
+              onChange={(e) => setVal('visite_meteo', e.target.value)}
+              style={{
+                padding: '7px 10px', fontSize: 13, fontFamily: 'inherit',
+                border: '1.5px solid var(--border)', borderRadius: 2,
+                background: 'var(--white)', outline: 'none'
+              }}>
+              <option value="">—</option>
+              <option value="Soleil">Soleil</option>
+              <option value="Couvert">Couvert</option>
+              <option value="Pluie">Pluie</option>
+              <option value="Neige">Neige</option>
+              <option value="Brouillard">Brouillard</option>
+            </select>
+          </label>
+        </div>
+        }
 
         {/* SECTION CHIPS — horizontal scroll */}
         <div style={{ display: 'flex', gap: 6, padding: '4px 14px 12px', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
@@ -2305,7 +2456,7 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onDelete, onTo
               }
               <Criterion c={c} raw={visite.data[c.id]}
                 gareName={gare.nom}
-                locked={activeSection.fluxLocked}
+                locked={activeSection.fluxLocked || readOnly}
                 onSetVal={(v) => setVal(c.id, v)}
                 onSetNote={(n) => setNote(c.id, n)}
                 onSetPhotos={(p) => setPhotos(c.id, p)}
@@ -2616,10 +2767,18 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
         {photos.map((p, i) => (
           <div key={i} style={{
             position: 'relative', aspectRatio: '1', borderRadius: 2, overflow: 'hidden',
-            border: '1px solid var(--border)', background: 'var(--paper)', cursor: 'pointer'
+            border: `1px solid ${p.pending ? 'var(--amber)' : 'var(--border)'}`,
+            background: 'var(--paper)', cursor: 'pointer'
           }} onClick={() => openLightbox(p.url)}>
             <img src={p.url} alt="" loading="lazy"
-              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+                opacity: p.pending ? 0.7 : 1 }} />
+            {p.pending && <span style={{
+              position: 'absolute', bottom: 2, left: 2,
+              background: 'var(--amber)', color: 'white',
+              fontSize: 8.5, fontWeight: 700, padding: '1px 4px', borderRadius: 1,
+              letterSpacing: '0.04em'
+            }}>⏳ EN ATTENTE</span>}
             {!locked && <button onClick={(e) => { e.stopPropagation(); removePhotoAt(i); }} style={{
               position: 'absolute', top: 2, right: 2,
               width: 20, height: 20, borderRadius: '50%',
@@ -2640,6 +2799,16 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
       {c.type === 'choice' && <ChoiceSelect c={c} value={value} onSet={onSetVal} />}
       {c.type === 'multi' && <MultiSelect c={c} value={value} onSet={onSetVal} />}
       {c.type === 'number' && <NumberInput value={value} onSet={onSetVal} />}
+      {c.type === 'date' &&
+        <input type="date" value={value || ''}
+          onChange={(e) => onSetVal(e.target.value)}
+          onFocus={onActivate}
+          style={{
+            padding: '10px 12px', fontSize: 14, fontFamily: 'inherit',
+            border: '1.5px solid var(--border)', borderRadius: 2,
+            background: 'var(--white)', minWidth: 180, outline: 'none'
+          }} />
+      }
       {c.type === 'pn' &&
         <CompositePN value={compVal} onSet={setComp} />
       }
@@ -2984,7 +3153,7 @@ function ChoiceSelect({ c, value, onSet }) {
 /* ============================================================
    OVERVIEW SCREEN — "L'Œil"
    ============================================================ */
-function OverviewScreen({ gare, visite, onBack, onZone, onExport }) {
+function OverviewScreen({ gare, visite, onBack, onZone, onExport, onPrintPDF, onDelete }) {
   const sections = SECTIONS.filter((s) => !s.skipIf || !s.skipIf(gare, visite.data));
   const stats = visiteStats(gare, visite.data);
   const missing = sections.flatMap((s) => {
@@ -3090,6 +3259,26 @@ function OverviewScreen({ gare, visite, onBack, onZone, onExport }) {
         }}>
           ⇣ Exporter ce carnet (CSV)
         </button>
+
+        {/* DANGER ZONE — bien séparé, en bas */}
+        {onDelete &&
+        <div style={{ marginTop: 40, paddingTop: 20, borderTop: '1px dashed var(--red-soft)' }}>
+          <div className="kicker" style={{ color: 'var(--red)', fontSize: 10, marginBottom: 8 }}>
+            Zone dangereuse
+          </div>
+          <button onClick={onDelete} style={{
+            width: '100%', padding: '11px', background: 'var(--white)', color: 'var(--red)',
+            border: '1px solid var(--red-soft)', borderRadius: 2,
+            fontSize: 12.5, fontWeight: 600,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+          }}>
+            🗑 Supprimer définitivement cette visite
+          </button>
+          <p style={{ fontSize: 10.5, color: 'var(--taupe)', textAlign: 'center', marginTop: 6 }}>
+            Demande une confirmation (taper le nom de la gare)
+          </p>
+        </div>
+        }
       </div>
     </div>);
 
@@ -3098,7 +3287,7 @@ function OverviewScreen({ gare, visite, onBack, onZone, onExport }) {
 /* ============================================================
    EXPORT SCREEN — choix scope (toutes / cette gare / sélection) × format (CSV / Excel / JSON)
    ============================================================ */
-function ExportScreen({ all, onBack, onExport, onExportPhotos, syncing }) {
+function ExportScreen({ all, onBack, onExport, onExportPhotos, onPrintPDF, syncing }) {
   const visitesAll = Object.values(all).sort((a, b) => b.updated - a.updated);
   const [scope, setScope] = useState('all'); // 'all' | 'select' | 'completed' | 'in_progress'
   const [format, setFormat] = useState('xlsx'); // 'xlsx' | 'csv' | 'json'
@@ -3327,6 +3516,57 @@ function ExportScreen({ all, onBack, onExport, onExportPhotos, syncing }) {
             </div>
           );
         })()}
+
+        {/* ========================================================
+            FICHE PDF PAR GARE — sélection d'une gare unique
+            ======================================================== */}
+        {onPrintPDF && (
+          <div style={{ marginTop: 32, paddingTop: 22, borderTop: '1px dashed var(--border)' }}>
+            <div className="kicker" style={{ color: 'var(--taupe)', fontSize: 10, marginBottom: 10 }}>
+              Fiche PDF
+            </div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6, letterSpacing: '-0.015em' }}>
+              Fiche A4 imprimable par gare
+            </h3>
+            <p style={{ fontSize: 12, color: 'var(--ink-soft)', lineHeight: 1.5, marginBottom: 12 }}>
+              Pour chaque gare : tableau récap par section + photothèque rangée par question.
+              Format A4 portrait, prêt à imprimer ou enregistrer en PDF.
+            </p>
+            {visitesAll.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--taupe)', fontStyle: 'italic',
+                padding: '12px', textAlign: 'center', background: 'var(--paper-deep)' }}>
+                Aucune gare visitée pour l'instant
+              </div>
+            ) : (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 2,
+                maxHeight: 280, overflowY: 'auto' }}>
+                {visitesAll.map((v, i) => {
+                  const g = GARES.find(x => x.nom === v.gare);
+                  const st = g ? visiteStats(g, v.data) : { pct: 0 };
+                  return (
+                    <button key={v.gare} onClick={() => onPrintPDF(v.gare)} style={{
+                      width: '100%', padding: '10px 14px',
+                      borderBottom: i === visitesAll.length - 1 ? 'none' : '1px solid var(--border-soft)',
+                      textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+                      background: 'var(--white)'
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 500 }}>{v.gare}</div>
+                        <div style={{ fontSize: 10, color: 'var(--taupe)', marginTop: 2 }}>
+                          {v.auteur || 'Anonyme'} · {st.pct}% complétée
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 600 }}>📄 Générer →</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <p style={{ fontSize: 10.5, color: 'var(--taupe)', marginTop: 8, lineHeight: 1.4 }}>
+              Clique sur une gare pour ouvrir l'aperçu, puis utilise <strong>Imprimer / PDF</strong> en haut à droite.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -3422,6 +3662,7 @@ function GridEditModal({ modal, onClose, apply, gridRev, auteur }) {
     { value: 'pne', label: 'Présence + Nombre + État' },
     { value: 'count', label: 'Compteur (entier)' },
     { value: 'number', label: 'Nombre libre' },
+    { value: 'date', label: 'Date' },
     { value: 'rating', label: 'Note (4 niveaux avec labels custom)' },
     { value: 'choice', label: 'Choix unique (liste)' },
     { value: 'multi', label: 'Choix multiple (cases à cocher)' },
@@ -3543,6 +3784,30 @@ function Field({ label, children }) {
    APP
    ============================================================ */
 function App() {
+  // Mode lecture seule activé via ?readonly=1 ou ?ro=1 dans l'URL
+  // → désactive toutes les modifications, masque les boutons d'action
+  const readOnly = useMemo(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      return p.get('readonly') === '1' || p.get('ro') === '1';
+    } catch (e) { return false; }
+  }, []);
+
+  // État réseau (online/offline) + queue d'upload photos
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [retryingPhotos, setRetryingPhotos] = useState(null); // { done, total } | null
+
+  useEffect(() => {
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
+
   const [route, setRoute] = useState({ name: 'home' });
   const [all, setAll] = useState(loadAll());
   const [auteur, setAuteur] = useState(localStorage.getItem('serm-auteur') || 'Anonyme');
@@ -3555,6 +3820,41 @@ function App() {
   // → force le re-render des composants qui dépendent de la grille
   const [gridRev, setGridRev] = useState(0);
   const bumpGrid = useCallback(() => setGridRev(r => r + 1), []);
+
+  // Compteur de photos en attente d'upload (pending)
+  const pendingCount = useMemo(() => {
+    let n = 0;
+    Object.values(all).forEach(v => {
+      if (!v?.data) return;
+      Object.values(v.data).forEach(d => {
+        if (d?.photos && Array.isArray(d.photos)) {
+          d.photos.forEach(p => { if (p?.pending) n++; });
+        }
+      });
+    });
+    return n;
+  }, [all]);
+
+  // Retry automatique des photos pending au retour online
+  useEffect(() => {
+    if (!isOnline || readOnly || pendingCount === 0 || retryingPhotos) return;
+    let cancelled = false;
+    setRetryingPhotos({ done: 0, total: pendingCount });
+    retryPendingPhotos(all, (done, total) => {
+      if (!cancelled) setRetryingPhotos({ done, total });
+    }).then((newAll) => {
+      if (cancelled) return;
+      if (newAll !== all) {
+        setAll(newAll);
+        // Push à Supabase pour persister les nouvelles URLs des photos
+        Object.values(newAll).forEach(v => debouncedPush(v));
+        showToast(`${pendingCount} photo(s) envoyée(s) ✓`, 'success');
+      }
+      setRetryingPhotos(null);
+    }).catch(() => { if (!cancelled) setRetryingPhotos(null); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line
+  }, [isOnline, pendingCount]);
 
   // Initial pull from Supabase + local persistence
   useEffect(() => {
@@ -3612,6 +3912,7 @@ function App() {
 
   // Wrapper qui mute SECTIONS + push Supabase + force re-render
   const applyGridChange = useCallback((mutateFn, successMsg) => {
+    if (readOnly) { alert('Mode consultation — édition de grille désactivée'); return false; }
     const ok = mutateFn();
     if (ok === false) return false;
     bumpGrid();
@@ -3619,7 +3920,7 @@ function App() {
     if (successMsg) setToast({ msg: successMsg, type: 'success' });
     setTimeout(() => setToast(null), 1800);
     return ok;
-  }, [auteur, bumpGrid]);
+  }, [auteur, bumpGrid, readOnly]);
 
   // State de la modale d'édition de la grille
   // editModal = null | { type, sectionId?, critId?, current? }
@@ -3675,7 +3976,9 @@ function App() {
     const g = GARES.find((x) => x.nom === gareName);
     if (!all[gareName]) {
       // Pré-remplir avec les attributs connus de la gare (Caractérisation + Synthèse)
+      const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
       const initialData = {
+        visite_date: today,
         carac_quais_nb_acc: g.quais,
         // Pré-remplir la typologie SRADDET d'après cat_pro qui suit le même format
         synth_typo_sraddet: g.cat_pro || ''
@@ -3711,6 +4014,7 @@ function App() {
   }, []);
 
   const updateVisite = (v) => {
+    if (readOnly) return; // Mode consultation — aucune écriture
     // Le dernier modificateur devient l'auteur affiché
     const updated = { ...v, auteur: auteur };
     setAll((a) => ({ ...a, [v.gare]: updated }));
@@ -3718,7 +4022,13 @@ function App() {
   };
 
   const deleteVisite = async (gareName) => {
-    if (!confirm(`Supprimer la visite de ${gareName} ? Cette action est irréversible.`)) return;
+    if (readOnly) { alert('Mode consultation — suppression désactivée'); return; }
+    const typed = prompt(`⚠ Suppression IRRÉVERSIBLE de la visite "${gareName}".\n\nToutes les données saisies ET les photos seront perdues.\n\nPour confirmer, tape exactement le nom de la gare :`);
+    if (typed === null) return; // Annulé
+    if (typed.trim() !== gareName) {
+      alert('Nom incorrect — suppression annulée.');
+      return;
+    }
     setAll((a) => { const next = { ...a }; delete next[gareName]; return next; });
     await deleteVisiteRemote(gareName);
     showToast('Visite supprimée');
@@ -3931,11 +4241,15 @@ function App() {
         onOpen={(g) => setRoute({ name: 'form', gareName: g })}
         onChangeAuteur={changeAuteur}
         onExportAll={() => setRoute({ name: 'export' })}
-        editMode={editMode}
-        onToggleEdit={() => setEditMode(e => !e)}
-        onRestoreGrille={restoreDefaultGrille}
+        editMode={editMode && !readOnly}
+        onToggleEdit={readOnly ? null : (() => setEditMode(e => !e))}
+        onRestoreGrille={readOnly ? null : restoreDefaultGrille}
+        readOnly={readOnly}
+        isOnline={isOnline}
+        pendingCount={pendingCount}
+        retryingPhotos={retryingPhotos}
         gridRev={gridRev} />
-      <GridEditModal modal={editModal} onClose={closeGridEdit} apply={applyGridChange} gridRev={gridRev} auteur={auteur} />
+      {!readOnly && <GridEditModal modal={editModal} onClose={closeGridEdit} apply={applyGridChange} gridRev={gridRev} auteur={auteur} />}
       <Toast toast={toast} />
     </>;
   }
@@ -3948,6 +4262,7 @@ function App() {
         onBack={() => setRoute({ name: 'home' })}
         onExport={(visites, format, name) => exportData(visites, format, name)}
         onExportPhotos={exportPhotosZip}
+        onPrintPDF={(gareName) => setRoute({ name: 'print', gareName })}
         syncing={syncing} />
       <Toast toast={toast} />
     </>;
@@ -3960,18 +4275,18 @@ function App() {
       <FormScreen gare={g} visite={v} onUpdate={updateVisite}
         onBack={() => setRoute({ name: 'home' })}
         onOverview={() => setRoute({ name: 'overview', gareName: g.nom })}
-        onDelete={() => deleteVisite(g.nom)}
         onToast={showToast}
-        editMode={editMode}
-        onToggleEdit={() => setEditMode(e => !e)}
+        editMode={editMode && !readOnly}
+        onToggleEdit={readOnly ? null : (() => setEditMode(e => !e))}
         onEditCrit={(sid, cid) => openGridEdit('edit-crit', sid, cid)}
         onAddCrit={(sid) => openGridEdit('add-crit', sid)}
         onDeleteCrit={confirmDeleteCrit}
         onEditSection={(sid) => openGridEdit('edit-section', sid)}
         onAddSection={() => openGridEdit('add-section')}
         onDeleteSection={confirmDeleteSection}
+        readOnly={readOnly}
         gridRev={gridRev} />
-      <GridEditModal modal={editModal} onClose={closeGridEdit} apply={applyGridChange} gridRev={gridRev} auteur={auteur} />
+      {!readOnly && <GridEditModal modal={editModal} onClose={closeGridEdit} apply={applyGridChange} gridRev={gridRev} auteur={auteur} />}
       <Toast toast={toast} />
     </>;
   }
@@ -3984,11 +4299,206 @@ function App() {
         onBack={() => setRoute({ name: 'form', gareName: g.nom })}
         onZone={(id) => setRoute({ name: 'form', gareName: g.nom, jumpTo: id })}
         onExport={() => exportData([v], 'xlsx', `releve_${g.nom}`)}
+        onPrintPDF={() => setRoute({ name: 'print', gareName: g.nom })}
+        onDelete={readOnly ? null : (() => deleteVisite(g.nom))}
         gridRev={gridRev} />
       <Toast toast={toast} />
     </>;
   }
+  if (route.name === 'print') {
+    const g = GARES.find((x) => x.nom === route.gareName);
+    const v = all[route.gareName];
+    if (!g || !v) { setTimeout(() => setRoute({ name: 'home' })); return null; }
+    return <PrintScreen gare={g} visite={v}
+      onBack={() => setRoute({ name: 'overview', gareName: g.nom })} />;
+  }
   return null;
+}
+
+/* ============================================================
+   PRINT SCREEN — fiche imprimable A4 d'une gare
+   Utilise window.print() avec un CSS @media print dédié.
+   Pour générer un PDF : Ctrl+P → Enregistrer en PDF.
+   ============================================================ */
+function PrintScreen({ gare, visite, onBack }) {
+  const sections = SECTIONS.filter((s) => !s.skipIf || !s.skipIf(gare, visite.data));
+  const stats = visiteStats(gare, visite.data);
+  const dateStr = new Date(visite.updated || Date.now()).toLocaleDateString('fr-FR',
+    { day: 'numeric', month: 'long', year: 'numeric' });
+  const visiteDate = visite.data?.visite_date || '—';
+  const meteo = visite.data?.visite_meteo || '—';
+
+  // Helper pour afficher la valeur d'un critère
+  const renderVal = (c, raw) => {
+    if (raw && typeof raw === 'object' && raw.na === true) return <em style={{ color: '#888' }}>N/A</em>;
+    const v = getVal(raw);
+    if (v == null || v === '') return <span style={{ color: '#aaa' }}>—</span>;
+    if (Array.isArray(v)) return v.join(', ');
+    if (typeof v === 'object') {
+      const parts = [];
+      if (v.presence === 'yes') parts.push('Présent');
+      if (v.presence === 'no') parts.push('Absent');
+      if (v.nb != null && v.nb !== '') parts.push(`n=${v.nb}`);
+      if (v.etat != null) parts.push(`état ${Math.round(v.etat*100)}%`);
+      return parts.join(' · ') || '—';
+    }
+    if (c.type === 'rating' && c.labels && typeof v === 'number') return c.labels[v] || `Note ${v}`;
+    return String(v);
+  };
+
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', background: '#E5E5E5' }}>
+      {/* TOP BAR — masquée à l'impression */}
+      <div className="no-print" style={{ background: 'var(--ink)', color: 'var(--paper)', padding: '12px 18px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
+        <button onClick={onBack} style={{ color: 'var(--paper)', fontSize: 13 }}>← Retour</button>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, opacity: 0.7 }}>Aperçu fiche · Ctrl+P pour imprimer / enregistrer en PDF</span>
+          <button onClick={() => window.print()} style={{
+            background: 'var(--red)', color: 'white', padding: '6px 14px',
+            fontSize: 12, fontWeight: 600, borderRadius: 2
+          }}>📄 Imprimer / PDF</button>
+        </div>
+      </div>
+
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: white !important; }
+          .print-page { box-shadow: none !important; margin: 0 !important; padding: 12mm !important; width: 100% !important; min-height: auto !important; }
+          .pagebreak { page-break-before: always; }
+        }
+        @page { size: A4 portrait; margin: 0; }
+      `}</style>
+
+      {/* PAGE A4 */}
+      <div className="print-page" style={{
+        background: 'white', width: '210mm', minHeight: '297mm', margin: '20px auto',
+        padding: '15mm 15mm 12mm', boxShadow: '0 2px 20px rgba(0,0,0,0.1)',
+        fontSize: 10, lineHeight: 1.4, color: '#1A1A1A'
+      }}>
+        {/* HEADER FICHE */}
+        <div style={{ borderBottom: '2px solid #C8102E', paddingBottom: 8, marginBottom: 14,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <div>
+            <div style={{ background: '#C8102E', color: 'white', padding: '2px 6px', display: 'inline-block',
+              fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', marginBottom: 6 }}>AREP × G&C · SERM HDF</div>
+            <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{gare.nom}</h1>
+            <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>
+              {gare.cat_pro} · {gare.cat_sgp} · ligne {gare.ligne_flux} · {gare.secteur}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right', fontSize: 9, color: '#666' }}>
+            <div>UIC {gare.uic}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: stats.pct === 100 ? '#1D5E3A' : '#C77800', marginTop: 4 }}>
+              {stats.pct}%
+            </div>
+            <div style={{ fontSize: 8.5 }}>{stats.filled}/{stats.total} critères</div>
+          </div>
+        </div>
+
+        {/* META */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8,
+          fontSize: 9, marginBottom: 14, background: '#F5F2EB', padding: '8px 10px' }}>
+          <div><strong>Date visite</strong><br/>{visiteDate}</div>
+          <div><strong>Météo</strong><br/>{meteo}</div>
+          <div><strong>Enquêteur</strong><br/>{visite.auteur || '—'}</div>
+          <div><strong>Dernière modif</strong><br/>{dateStr}</div>
+        </div>
+
+        {/* SECTIONS */}
+        {sections.map((s) => {
+          const sStats = sectionStats(s, visite.data);
+          const items = (s.criteria || []).filter(c => c.type !== 'subhead' && c.type !== 'text');
+          if (items.length === 0) return null;
+          return (
+            <div key={s.id} style={{ marginBottom: 12, breakInside: 'avoid' }}>
+              <div style={{ borderBottom: '1px solid #1A1A1A', paddingBottom: 3, marginBottom: 6,
+                display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <h2 style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
+                  {String(Math.floor(s.n)).padStart(2, '0')} · {s.title}
+                </h2>
+                <span style={{ fontSize: 9, color: '#666' }}>{sStats.filled}/{sStats.total}</span>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 9 }}>
+                <tbody>
+                {items.map(c => (
+                  <tr key={c.id} style={{ borderBottom: '1px dotted #E0E0E0' }}>
+                    <td style={{ padding: '3px 4px 3px 0', width: '55%', verticalAlign: 'top' }}>{c.label}</td>
+                    <td style={{ padding: '3px 4px', fontWeight: 600, width: '30%', verticalAlign: 'top' }}>
+                      {renderVal(c, visite.data?.[c.id])}
+                    </td>
+                    <td style={{ padding: '3px 0 3px 4px', fontSize: 8, color: '#999',
+                      textAlign: 'right', verticalAlign: 'top' }}>
+                      {(() => {
+                        const d = visite.data?.[c.id];
+                        const photos = d?.photos || [];
+                        const note = d?.note || '';
+                        const tags = [];
+                        if (photos.length) tags.push(`📷${photos.length}`);
+                        if (note) tags.push('📝');
+                        return tags.join(' ');
+                      })()}
+                    </td>
+                  </tr>
+                ))}
+                </tbody>
+              </table>
+              {/* Notes libres significatives */}
+              {items.some(c => visite.data?.[c.id]?.note) &&
+              <div style={{ marginTop: 6, fontSize: 8.5, color: '#444' }}>
+                {items.filter(c => visite.data?.[c.id]?.note).map(c => (
+                  <div key={c.id} style={{ marginTop: 2 }}>
+                    <em>{c.label} :</em> {visite.data[c.id].note}
+                  </div>
+                ))}
+              </div>}
+            </div>
+          );
+        })}
+
+        {/* PHOTOS RÉCAP — page suivante */}
+        {(() => {
+          const allPhotos = [];
+          sections.forEach(s => (s.criteria || []).forEach(c => {
+            const d = visite.data?.[c.id];
+            if (d?.photos) d.photos.forEach((p, i) => allPhotos.push({ p, label: c.label, section: s.short, num: i+1 }));
+          }));
+          if (allPhotos.length === 0) return null;
+          return (
+            <div className="pagebreak" style={{ marginTop: 24, paddingTop: 14, borderTop: '2px solid #C8102E' }}>
+              <h2 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10,
+                textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Photothèque · {allPhotos.length} photo{allPhotos.length > 1 ? 's' : ''}
+              </h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                {allPhotos.map((ph, i) => (
+                  <div key={i} style={{ breakInside: 'avoid' }}>
+                    <div style={{ width: '100%', aspectRatio: '4/3',
+                      background: '#F0EBE0', border: '1px solid #D9D3C4',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                      <img src={ph.p.url} alt="" style={{
+                        maxWidth: '100%', maxHeight: '100%',
+                        objectFit: 'contain', display: 'block' }} />
+                    </div>
+                    <div style={{ fontSize: 7.5, color: '#666', marginTop: 2, lineHeight: 1.2 }}>
+                      <strong>{ph.section}</strong> · {ph.label} #{ph.num}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* FOOTER */}
+        <div style={{ marginTop: 24, paddingTop: 8, borderTop: '1px solid #ccc',
+          fontSize: 7.5, color: '#888', textAlign: 'center' }}>
+          Fiche générée le {new Date().toLocaleString('fr-FR')} · SERM Hauts-de-France · AREP × Gares & Connexions
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Toast({ toast }) {
