@@ -3839,66 +3839,8 @@ function App() {
       setPwdError(true);
     }
   };
-
-  // Écran de verrouillage — affiché si l'utilisateur n'a pas encore saisi le bon mdp
-  if (!isUnlocked) {
-    return (
-      <div style={{
-        minHeight: '100dvh', background: 'var(--ink)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
-      }}>
-        <div style={{
-          background: 'var(--paper-light)', borderRadius: 4,
-          padding: '32px 28px', maxWidth: 380, width: '100%',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.4)'
-        }}>
-          <div style={{
-            background: 'var(--red)', color: 'white',
-            padding: '3px 10px', display: 'inline-block',
-            fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', marginBottom: 16
-          }}>AREP × G&C</div>
-          <h1 style={{
-            fontSize: 24, fontWeight: 700, letterSpacing: '-0.025em',
-            marginBottom: 6, lineHeight: 1.15
-          }}>SERM Hauts-de-France</h1>
-          <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 24, lineHeight: 1.45 }}>
-            Outil de relevé terrain — accès réservé à l'équipe projet.
-            Saisis le mot de passe communiqué par Tony pour continuer.
-          </p>
-          <input
-            type="password"
-            value={pwdInput}
-            onChange={(e) => { setPwdInput(e.target.value); setPwdError(false); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') tryUnlock(); }}
-            autoFocus
-            placeholder="Mot de passe"
-            style={{
-              width: '100%', padding: '12px 14px', fontSize: 15, fontFamily: 'inherit',
-              border: `1.5px solid ${pwdError ? 'var(--red)' : 'var(--border)'}`,
-              borderRadius: 2, background: 'var(--white)',
-              outline: 'none', marginBottom: 4
-            }}
-          />
-          {pwdError &&
-          <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 4, marginBottom: 8 }}>
-            Mot de passe incorrect.
-          </div>
-          }
-          <button onClick={tryUnlock} style={{
-            marginTop: 14, width: '100%', padding: '13px',
-            background: 'var(--red)', color: 'var(--paper-light)',
-            fontWeight: 600, fontSize: 13.5, letterSpacing: '0.04em', textTransform: 'uppercase',
-            borderRadius: 2
-          }}>
-            Déverrouiller
-          </button>
-          <p style={{ fontSize: 10.5, color: 'var(--taupe)', marginTop: 18, lineHeight: 1.5 }}>
-            En cas d'oubli, contacte Tony Bégo (AREP Programmation).
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // (L'écran de verrouillage est rendu plus bas, après TOUS les hooks d'App,
+  //  pour respecter les règles des hooks React.)
 
   // Mode lecture seule activé via ?readonly=1 ou ?ro=1 dans l'URL
   // → désactive toutes les modifications, masque les boutons d'action
@@ -4318,7 +4260,7 @@ function App() {
   const buildExcelPretty = async (visites, safeName, today) => {
     if (!window.ExcelJS) throw new Error('ExcelJS non chargé');
     const wb = new window.ExcelJS.Workbook();
-    wb.creator = 'SERM HDF · AREP × G&C';
+    wb.creator = 'SERM HDF · AREP';
     wb.created = new Date();
 
     // ============= ONGLET 1 : Base de données =============
@@ -4583,7 +4525,7 @@ function App() {
       ['', ''],
       ['SOURCE', ''],
       ['Outil', "Saisie via l'app SERM HDF (HTML + Supabase). Cet Excel est généré à l'export."],
-      ['Contact', 'Tony BÉGO — AREP Programmation · SNCF G&C']
+      ['Contact', 'Tony BEGO — AREP Conseil & Programmation']
     ];
     let rMode = 6;
     modeContent.forEach((line) => {
@@ -4766,7 +4708,7 @@ function App() {
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
-    doc.text('AREP x G&C - SERM HAUTS-DE-FRANCE', MARGIN, 7);
+    doc.text('AREP - SERM HAUTS-DE-FRANCE', MARGIN, 7);
     doc.setFontSize(16);
     doc.text(gare.nom, MARGIN, 15);
     doc.setFontSize(8);
@@ -4985,6 +4927,67 @@ function App() {
     showToast(`PDF généré : ${gare.nom} ✓`, 'success');
   };
 
+  // ===== ÉCRAN DE VERROUILLAGE — rendu après tous les hooks =====
+  // Doit être ICI (et pas en haut de App) pour respecter les règles
+  // des hooks React (ordre stable à chaque render).
+  if (!isUnlocked) {
+    return (
+      <div style={{
+        minHeight: '100dvh', background: 'var(--ink)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+      }}>
+        <div style={{
+          background: 'var(--paper-light)', borderRadius: 4,
+          padding: '32px 28px', maxWidth: 380, width: '100%',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.4)'
+        }}>
+          <div style={{
+            background: 'var(--red)', color: 'white',
+            padding: '3px 10px', display: 'inline-block',
+            fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', marginBottom: 16
+          }}>AREP </div>
+          <h1 style={{
+            fontSize: 24, fontWeight: 700, letterSpacing: '-0.025em',
+            marginBottom: 6, lineHeight: 1.15
+          }}>SERM Hauts-de-France</h1>
+          <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 24, lineHeight: 1.45 }}>
+            Outil de relevé terrain — accès réservé à l'équipe projet.
+            Saisis le mot de passe.
+          </p>
+          <input
+            type="password"
+            value={pwdInput}
+            onChange={(e) => { setPwdInput(e.target.value); setPwdError(false); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') tryUnlock(); }}
+            autoFocus
+            placeholder="Mot de passe"
+            style={{
+              width: '100%', padding: '12px 14px', fontSize: 15, fontFamily: 'inherit',
+              border: `1.5px solid ${pwdError ? 'var(--red)' : 'var(--border)'}`,
+              borderRadius: 2, background: 'var(--white)',
+              outline: 'none', marginBottom: 4
+            }}
+          />
+          {pwdError &&
+          <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 4, marginBottom: 8 }}>
+            Mot de passe incorrect.
+          </div>
+          }
+          <button onClick={tryUnlock} style={{
+            marginTop: 14, width: '100%', padding: '13px',
+            background: 'var(--red)', color: 'var(--paper-light)',
+            fontWeight: 600, fontSize: 13.5, letterSpacing: '0.04em', textTransform: 'uppercase',
+            borderRadius: 2
+          }}>
+            Déverrouiller
+          </button>
+          <p style={{ fontSize: 10.5, color: 'var(--taupe)', marginTop: 18, lineHeight: 1.5 }}>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (route.name === 'home') {
     return <>
       <HomeScreen all={all} auteur={auteur} syncing={syncing}
@@ -5140,7 +5143,7 @@ function PrintScreen({ gare, visite, onBack }) {
           display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div>
             <div style={{ background: '#C8102E', color: 'white', padding: '2px 6px', display: 'inline-block',
-              fontSize: 8.5, fontWeight: 700, letterSpacing: '0.18em', marginBottom: 4 }}>AREP × G&C · SERM HDF</div>
+              fontSize: 8.5, fontWeight: 700, letterSpacing: '0.18em', marginBottom: 4 }}>AREP · SERM HDF</div>
             <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{gare.nom}</h1>
             <div style={{ fontSize: 9, color: '#666', marginTop: 1 }}>
               {gare.cat_pro} · {gare.cat_sgp} · ligne {gare.ligne_flux} · {gare.secteur}
@@ -5252,7 +5255,7 @@ function PrintScreen({ gare, visite, onBack }) {
         {/* FOOTER */}
         <div style={{ marginTop: 24, paddingTop: 8, borderTop: '1px solid #ccc',
           fontSize: 7.5, color: '#888', textAlign: 'center' }}>
-          Fiche générée le {new Date().toLocaleString('fr-FR')} · SERM Hauts-de-France · AREP × Gares & Connexions
+          Fiche générée le {new Date().toLocaleString('fr-FR')} · SERM Hauts-de-France · AREP 
         </div>
       </div>
     </div>
