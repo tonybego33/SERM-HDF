@@ -11,6 +11,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -4147,17 +4148,12 @@ function App() {
       const csv = '\uFEFF' + [headers, ...rows].map((r) => r.map(csvEscape).join(';')).join('\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       downloadBlob(blob, `${safeName}_${today}.csv`);
+      showToast(`${visites.length} visite${visites.length > 1 ? 's' : ''} exportée${visites.length > 1 ? 's' : ''} ✓`, 'success');
     } else if (format === 'xlsx') {
-      if (!window.XLSX) { showToast('Excel non chargé — réessaie', 'error'); return; }
-      const { headers, rows } = buildTable(visites);
-      const ws = window.XLSX.utils.aoa_to_sheet([headers, ...rows]);
-      // Fige la première ligne
-      ws['!freeze'] = { xSplit: 0, ySplit: 1 };
-      // Largeur auto approximative
-      ws['!cols'] = headers.map((h) => ({ wch: Math.max(10, Math.min(40, h.length + 4)) }));
-      const wb = window.XLSX.utils.book_new();
-      window.XLSX.utils.book_append_sheet(wb, ws, 'Relevés SERM HDF');
-      window.XLSX.writeFile(wb, `${safeName}_${today}.xlsx`);
+      // Génération stylée avec ExcelJS (asynchrone, lance en background)
+      buildExcelPretty(visites, safeName, today)
+        .then(() => showToast(`${visites.length} visite${visites.length > 1 ? 's' : ''} exportée${visites.length > 1 ? 's' : ''} ✓`, 'success'))
+        .catch((e) => { console.error('Excel export:', e); showToast('Erreur export Excel', 'error'); });
     } else if (format === 'json') {
       const payload = {
         exported_at: new Date().toISOString(),
@@ -4174,8 +4170,348 @@ function App() {
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       downloadBlob(blob, `${safeName}_${today}.json`);
+      showToast(`${visites.length} visite${visites.length > 1 ? 's' : ''} exportée${visites.length > 1 ? 's' : ''} ✓`, 'success');
     }
-    showToast(`${visites.length} visite${visites.length > 1 ? 's' : ''} exportée${visites.length > 1 ? 's' : ''} ✓`, 'success');
+  };
+
+  /* ===========================================================
+     EXPORT EXCEL STYLÉ (ExcelJS) — multi-onglets façon base de données pro
+     Onglets : Base de données / Suivi visites / Méthodologie / Mode d'emploi
+     =========================================================== */
+
+  // Couleurs par section, inspirées du template AREP de Tony
+  const SECTION_COLORS = {
+    carac:     '#C8102E', // rouge AREP
+    parking:   '#567B8F', // bleu acier
+    parking2:  '#567B8F',
+    parvis:    '#9E0B24', // rouge bordeaux
+    velos:     '#6B8E4E', // vert olive
+    tc:        '#D17B0F', // orange
+    bv:        '#7A4E8C', // violet
+    franch:    '#B85450', // saumon
+    quais:     '#1D5E3A', // vert foncé
+    pmr:       '#444444', // gris
+    synthese:  '#1A1A1A'  // noir
+  };
+  const IDENTITY_COLOR = '#1A1A1A';
+  const BUREAU_COLOR = '#2B3A4A';
+  const META_COLOR = '#6B6259';
+
+  // Format human-readable d'une valeur de critère pour Excel
+  const formatValForExcel = (c, raw) => {
+    if (raw && typeof raw === 'object' && raw.na === true) return 'N/A';
+    const v = getVal(raw);
+    if (v == null || v === '') return '';
+    if (Array.isArray(v)) return v.join(', ');
+    if (typeof v === 'object') {
+      const parts = [];
+      if (v.presence === 'yes') parts.push('Présent');
+      if (v.presence === 'no') parts.push('Absent');
+      if (v.nb != null && v.nb !== '') parts.push(`n=${v.nb}`);
+      if (v.etat != null) {
+        const labels = ['mauvais', 'moyen', 'bon', 'très bon'];
+        parts.push(`état: ${labels[Math.round(v.etat*3)] || ''}`);
+      }
+      return parts.join(' · ');
+    }
+    if (c.type === 'rating' && c.labels && typeof v === 'number') return c.labels[v] || `Note ${v}`;
+    if (c.type === 'yesno') return v === true ? 'Oui' : v === false ? 'Non' : String(v);
+    return String(v);
+  };
+
+  const buildExcelPretty = async (visites, safeName, today) => {
+    if (!window.ExcelJS) throw new Error('ExcelJS non chargé');
+    const wb = new window.ExcelJS.Workbook();
+    wb.creator = 'SERM HDF · AREP × G&C';
+    wb.created = new Date();
+
+    // ============= ONGLET 1 : Base de données =============
+    const wsBase = wb.addWorksheet('Base de données', {
+      views: [{ state: 'frozen', xSplit: 1, ySplit: 8, showGridLines: false }]
+    });
+
+    // Construire la liste des colonnes :
+    // - Identité (Nom, UIC, Cat SGP, Cat Pro, Secteur, Axe, Ligne flux) — 7 cols
+    // - Méta visite (Date, Météo, Enquêteur(s), % complétion) — 4 cols
+    // - Sections (en parcourant SECTIONS, sauf bureau et carac qui sont gérés à part)
+    const identityCols = [
+      { label: 'Nom gare',   getter: (g) => g.nom },
+      { label: 'UIC',        getter: (g) => g.uic },
+      { label: 'Cat. SGP',   getter: (g) => g.cat_sgp },
+      { label: 'Cat. Pro',   getter: (g) => g.cat_pro },
+      { label: 'Secteur',    getter: (g) => g.secteur },
+      { label: 'Axe',        getter: (g) => g.axe },
+      { label: 'Ligne flux', getter: (g) => g.ligne_flux }
+    ];
+    const metaCols = [
+      { label: 'Date de visite', getter: (g, v) => v.data?.visite_date || '' },
+      { label: 'Météo',          getter: (g, v) => v.data?.visite_meteo || '' },
+      { label: 'Enquêteur(s)',   getter: (g, v) => v.auteur || '' },
+      { label: '% complétion',   getter: (g, v) => `${visiteStats(g, v.data).pct}%` }
+    ];
+
+    // Pour chaque section, on liste ses critères (sauf subhead et bureau)
+    const sectionBlocks = [];
+    SECTIONS.forEach((s) => {
+      const items = (s.criteria || []).filter(c => c.type !== 'subhead' && c.type !== 'text');
+      if (items.length === 0) return;
+      const color = s.id === 'bureau' ? BUREAU_COLOR : (SECTION_COLORS[s.id] || META_COLOR);
+      sectionBlocks.push({ section: s, color, items });
+    });
+
+    // === LIGNE 2 : titre principal ===
+    wsBase.mergeCells('A2:G2');
+    const titleCell = wsBase.getCell('A2');
+    titleCell.value = 'AREP — BASE DE RELEVÉ TERRAIN · SERM HDF';
+    titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF1A1A1A' } };
+    titleCell.alignment = { vertical: 'middle', horizontal: 'left' };
+    wsBase.getRow(2).height = 24;
+
+    // === LIGNE 3 : sous-titre ===
+    wsBase.mergeCells('A3:G3');
+    const subCell = wsBase.getCell('A3');
+    subCell.value = `${visites.length} visite${visites.length > 1 ? 's' : ''} · exporté le ${new Date().toLocaleString('fr-FR')}`;
+    subCell.font = { name: 'Arial', size: 10, color: { argb: 'FF6B6259' }, italic: true };
+
+    // === LIGNE 7 : section headers fusionnés et colorés ===
+    const HEADER_ROW1 = 7;
+    const HEADER_ROW2 = 8;
+    let col = 1;
+    // Bloc IDENTITÉ
+    wsBase.mergeCells(HEADER_ROW1, col, HEADER_ROW1, col + identityCols.length - 1);
+    const idCell = wsBase.getCell(HEADER_ROW1, col);
+    idCell.value = 'IDENTITÉ';
+    idCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + IDENTITY_COLOR.slice(1) } };
+    idCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    idCell.alignment = { vertical: 'middle', horizontal: 'center' };
+    col += identityCols.length;
+    // Bloc MÉTA VISITE
+    wsBase.mergeCells(HEADER_ROW1, col, HEADER_ROW1, col + metaCols.length - 1);
+    const metaCell = wsBase.getCell(HEADER_ROW1, col);
+    metaCell.value = 'CONTEXTE VISITE';
+    metaCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + META_COLOR.slice(1) } };
+    metaCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    metaCell.alignment = { vertical: 'middle', horizontal: 'center' };
+    col += metaCols.length;
+    // Blocs des sections
+    sectionBlocks.forEach((block) => {
+      const start = col;
+      const end = col + block.items.length - 1;
+      wsBase.mergeCells(HEADER_ROW1, start, HEADER_ROW1, end);
+      const c = wsBase.getCell(HEADER_ROW1, start);
+      c.value = `${String(Math.floor(block.section.n)).padStart(2,'0')} · ${block.section.title.toUpperCase()}  (${block.items.length})`;
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + block.color.slice(1) } };
+      c.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+      c.alignment = { vertical: 'middle', horizontal: 'center' };
+      col = end + 1;
+    });
+    wsBase.getRow(HEADER_ROW1).height = 22;
+
+    // === LIGNE 8 : noms de colonnes individuels ===
+    col = 1;
+    const addColumnHeader = (label, color) => {
+      const c = wsBase.getCell(HEADER_ROW2, col);
+      c.value = label;
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color.slice(1) } };
+      c.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
+      c.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+      c.border = { bottom: { style: 'thin', color: { argb: 'FF000000' } } };
+      col++;
+    };
+    identityCols.forEach((ic) => addColumnHeader(ic.label, IDENTITY_COLOR));
+    metaCols.forEach((mc) => addColumnHeader(mc.label, META_COLOR));
+    sectionBlocks.forEach((block) => block.items.forEach((it) => addColumnHeader(it.label, block.color)));
+    wsBase.getRow(HEADER_ROW2).height = 50;
+
+    // === LIGNES 9+ : données des gares (1 ligne par visite) ===
+    visites.forEach((v, idx) => {
+      const g = GARES.find((x) => x.nom === v.gare);
+      if (!g) return;
+      const rowNum = HEADER_ROW2 + 1 + idx;
+      let c = 1;
+      // Identité
+      identityCols.forEach((ic) => { wsBase.getCell(rowNum, c++).value = ic.getter(g); });
+      // Méta
+      metaCols.forEach((mc) => { wsBase.getCell(rowNum, c++).value = mc.getter(g, v); });
+      // Sections
+      sectionBlocks.forEach((block) => {
+        block.items.forEach((it) => {
+          const raw = v.data?.[it.id];
+          const val = formatValForExcel(it, raw);
+          const cell = wsBase.getCell(rowNum, c);
+          cell.value = val;
+          // Note libre en commentaire si présente
+          if (raw?.note) {
+            cell.note = raw.note;
+          }
+          c++;
+        });
+      });
+      // Bordure ligne entière (légère)
+      for (let cc = 1; cc < col; cc++) {
+        wsBase.getCell(rowNum, cc).border = {
+          bottom: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+          right:  { style: 'thin', color: { argb: 'FFE0E0E0' } }
+        };
+      }
+      // Première colonne (nom gare) en gras
+      wsBase.getCell(rowNum, 1).font = { name: 'Arial', size: 10, bold: true };
+    });
+
+    // === LARGEURS DES COLONNES ===
+    let cIdx = 1;
+    identityCols.forEach(() => { wsBase.getColumn(cIdx++).width = 18; });
+    metaCols.forEach(() => { wsBase.getColumn(cIdx++).width = 14; });
+    sectionBlocks.forEach((block) => block.items.forEach(() => { wsBase.getColumn(cIdx++).width = 16; }));
+
+    // === FILTRES AUTO sur la ligne 8 ===
+    wsBase.autoFilter = {
+      from: { row: HEADER_ROW2, column: 1 },
+      to:   { row: HEADER_ROW2, column: col - 1 }
+    };
+
+    // ============= ONGLET 2 : Suivi visites =============
+    const wsSuivi = wb.addWorksheet('Suivi visites', {
+      views: [{ state: 'frozen', ySplit: 7, showGridLines: false }]
+    });
+    wsSuivi.mergeCells('A2:F2');
+    wsSuivi.getCell('A2').value = 'AREP — SUIVI DES VISITES';
+    wsSuivi.getCell('A2').font = { name: 'Arial', size: 16, bold: true };
+    wsSuivi.mergeCells('A3:F3');
+    wsSuivi.getCell('A3').value = 'Avancement par gare · statut, auteur(s), date';
+    wsSuivi.getCell('A3').font = { name: 'Arial', size: 10, italic: true, color: { argb: 'FF6B6259' } };
+
+    const suiviHeaders = ['Nom gare', 'Statut', 'Enquêteur(s)', 'Date dernière modif', '% complétion', 'Critères remplis'];
+    suiviHeaders.forEach((h, i) => {
+      const c = wsSuivi.getCell(7, i + 1);
+      c.value = h;
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A1A1A' } };
+      c.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+      c.alignment = { vertical: 'middle', horizontal: 'left' };
+    });
+    wsSuivi.getRow(7).height = 22;
+
+    visites.forEach((v, idx) => {
+      const g = GARES.find((x) => x.nom === v.gare);
+      if (!g) return;
+      const stats = visiteStats(g, v.data);
+      const r = 8 + idx;
+      let statut, statutColor;
+      if (stats.pct === 100) { statut = '✓ Complète'; statutColor = 'FF1D5E3A'; }
+      else if (stats.pct >= 50) { statut = '⏳ En cours'; statutColor = 'FFD17B0F'; }
+      else if (stats.pct > 0) { statut = '◐ Démarrée'; statutColor = 'FFB85450'; }
+      else { statut = '○ À faire'; statutColor = 'FF6B6259'; }
+      wsSuivi.getCell(r, 1).value = g.nom;
+      wsSuivi.getCell(r, 1).font = { name: 'Arial', size: 10, bold: true };
+      wsSuivi.getCell(r, 2).value = statut;
+      wsSuivi.getCell(r, 2).font = { name: 'Arial', size: 10, bold: true, color: { argb: statutColor } };
+      wsSuivi.getCell(r, 3).value = v.auteur || '—';
+      wsSuivi.getCell(r, 4).value = v.updated ? new Date(v.updated).toLocaleString('fr-FR') : '—';
+      wsSuivi.getCell(r, 5).value = stats.pct / 100;
+      wsSuivi.getCell(r, 5).numFmt = '0%';
+      wsSuivi.getCell(r, 6).value = `${stats.filled} / ${stats.total}`;
+    });
+    wsSuivi.getColumn(1).width = 28;
+    wsSuivi.getColumn(2).width = 16;
+    wsSuivi.getColumn(3).width = 22;
+    wsSuivi.getColumn(4).width = 22;
+    wsSuivi.getColumn(5).width = 14;
+    wsSuivi.getColumn(6).width = 18;
+    wsSuivi.autoFilter = { from: { row: 7, column: 1 }, to: { row: 7, column: 6 } };
+
+    // ============= ONGLET 3 : Méthodologie =============
+    const wsMethodo = wb.addWorksheet('Méthodologie', { views: [{ showGridLines: false }] });
+    wsMethodo.mergeCells('B2:E2');
+    wsMethodo.getCell('B2').value = 'AREP — MÉTHODOLOGIE';
+    wsMethodo.getCell('B2').font = { name: 'Arial', size: 16, bold: true };
+    wsMethodo.mergeCells('B3:E3');
+    wsMethodo.getCell('B3').value = 'Référentiel de relevé terrain SERM Hauts-de-France';
+    wsMethodo.getCell('B3').font = { name: 'Arial', size: 10, italic: true, color: { argb: 'FF6B6259' } };
+
+    let rM = 6;
+    wsMethodo.getCell(`B${rM}`).value = 'ARCHITECTURE';
+    wsMethodo.getCell(`B${rM}`).font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFC8102E' } };
+    rM += 2;
+    wsMethodo.getCell(`B${rM}`).value = `${SECTIONS.length} sections · ${SECTIONS.reduce((n, s) => n + (s.criteria || []).filter(c => c.type !== 'subhead' && c.type !== 'text').length, 0)} critères au total`;
+    rM += 2;
+
+    wsMethodo.getCell(`B${rM}`).value = 'SECTIONS';
+    wsMethodo.getCell(`B${rM}`).font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFC8102E' } };
+    rM += 2;
+    // Header
+    const methodoHeaders = ['N°', 'Section', 'Critères', 'Description'];
+    methodoHeaders.forEach((h, i) => {
+      const c = wsMethodo.getCell(rM, i + 2);
+      c.value = h;
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A1A1A' } };
+      c.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
+    });
+    rM++;
+    SECTIONS.forEach((s) => {
+      const nCriteria = (s.criteria || []).filter(c => c.type !== 'subhead' && c.type !== 'text').length;
+      wsMethodo.getCell(rM, 2).value = String(Math.floor(s.n)).padStart(2, '0');
+      wsMethodo.getCell(rM, 3).value = s.title;
+      wsMethodo.getCell(rM, 3).font = { name: 'Arial', size: 10, bold: true };
+      wsMethodo.getCell(rM, 4).value = nCriteria;
+      wsMethodo.getCell(rM, 5).value = s.subtitle || '';
+      wsMethodo.getCell(rM, 5).font = { name: 'Arial', size: 9, italic: true };
+      rM++;
+    });
+    wsMethodo.getColumn(1).width = 3;
+    wsMethodo.getColumn(2).width = 6;
+    wsMethodo.getColumn(3).width = 26;
+    wsMethodo.getColumn(4).width = 10;
+    wsMethodo.getColumn(5).width = 60;
+
+    // ============= ONGLET 4 : Mode d'emploi =============
+    const wsMode = wb.addWorksheet("Mode d'emploi", { views: [{ showGridLines: false }] });
+    wsMode.mergeCells('B2:D2');
+    wsMode.getCell('B2').value = "AREP — MODE D'EMPLOI";
+    wsMode.getCell('B2').font = { name: 'Arial', size: 16, bold: true };
+    wsMode.mergeCells('B3:D3');
+    wsMode.getCell('B3').value = 'Lecture et utilisation de cette base';
+    wsMode.getCell('B3').font = { name: 'Arial', size: 10, italic: true, color: { argb: 'FF6B6259' } };
+
+    const modeContent = [
+      ['STRUCTURE', ''],
+      ['Onglet 1', 'Base de données : 1 ligne par gare visitée. Headers colorés par section.'],
+      ['Onglet 2', "Suivi : statut d'avancement par gare (Complète / En cours / Démarrée / À faire)."],
+      ['Onglet 3', 'Méthodologie : architecture du référentiel, sections et nombre de critères.'],
+      ['Onglet 4', "Ce mode d'emploi."],
+      ['', ''],
+      ['CONVENTIONS', ''],
+      ['Valeurs', '"Présent" / "Absent" pour les présences, "Oui" / "Non" pour les booléens, valeurs textuelles pour les choix, nombres pour les compteurs.'],
+      ['N/A', "Critère marqué comme Non Applicable ou Ne Sait Pas — compte comme rempli dans la complétion."],
+      ['Note', 'Une note libre peut être attachée à chaque critère — apparaît en commentaire de cellule (survol).'],
+      ['Photos', "Les photos sont stockées séparément (ZIP photothèque), non incluses dans ce fichier."],
+      ['', ''],
+      ['SOURCE', ''],
+      ['Outil', "Saisie via l'app SERM HDF (HTML + Supabase). Cet Excel est généré à l'export."],
+      ['Contact', 'Tony BÉGO — AREP Programmation · SNCF G&C']
+    ];
+    let rMode = 6;
+    modeContent.forEach((line) => {
+      const isHeader = line[1] === '' && line[0] !== '';
+      if (isHeader) {
+        wsMode.getCell(rMode, 2).value = line[0];
+        wsMode.getCell(rMode, 2).font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFC8102E' } };
+      } else if (line[0] !== '' || line[1] !== '') {
+        wsMode.getCell(rMode, 2).value = line[0];
+        wsMode.getCell(rMode, 2).font = { name: 'Arial', size: 10, bold: true };
+        wsMode.getCell(rMode, 3).value = line[1];
+        wsMode.getCell(rMode, 3).font = { name: 'Arial', size: 10 };
+        wsMode.getCell(rMode, 3).alignment = { wrapText: true };
+      }
+      rMode++;
+    });
+    wsMode.getColumn(1).width = 3;
+    wsMode.getColumn(2).width = 16;
+    wsMode.getColumn(3).width = 80;
+
+    // ============= SAVE =============
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    downloadBlob(blob, `${safeName}_${today}.xlsx`);
   };
 
   /* ===== EXPORT PHOTOS — ZIP rangé par Gare / Section / Question ===== */
