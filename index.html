@@ -2191,17 +2191,28 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
           </div>
           <ProgressRing pct={stats.pct} size={48} />
         </div>
+      </div>
 
-        {/* GARE ISO ANIMÉE — visualise l'avancement du relevé */}
-        <div style={{ padding: '0 14px 10px' }}>
+      {/* SECTION PANEL — full focus
+          Tout ce qui suit scroll, sauf la BARRE TITRE qui est sticky top:0 */}
+      <div id="panel-scroll" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+      style={{ flex: 1, overflowY: 'auto',
+        background: editMode ? '#FFF6F0' : (activeSection.bureau ? '#F5F7F9' : 'var(--white)'),
+        minHeight: 0,
+        boxShadow: editMode ? 'inset 0 0 0 3px var(--red)' : 'none',
+        transition: 'background 0.2s, box-shadow 0.2s'
+      }}>
+        {/* StationProgress — scroll avec le contenu */}
+        <div style={{ padding: '8px 14px 10px', background: 'var(--paper-light)' }}>
           <div style={{ background: 'var(--white)', border: '1px solid var(--border)', padding: '6px 8px 4px' }}>
             <StationProgress gare={gare} visite={visite} activeId={activeId} />
           </div>
         </div>
 
-        {/* ENCART CONTEXTE VISITE — toujours visible, indépendant de la grille */}
+        {/* ENCART CONTEXTE VISITE — scroll avec le contenu */}
         {!readOnly &&
-        <div style={{ padding: '0 14px 12px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ padding: '0 14px 12px', display: 'flex', gap: 8, flexWrap: 'wrap',
+          background: 'var(--paper-light)' }}>
           <label style={{ flex: '1 1 140px', display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
             <span style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--taupe)',
               textTransform: 'uppercase', letterSpacing: '0.08em' }}>📅 Date de visite</span>
@@ -2234,8 +2245,10 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
         </div>
         }
 
-        {/* SECTION CHIPS — horizontal scroll */}
-        <div style={{ display: 'flex', gap: 6, padding: '4px 14px 12px', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        {/* SECTION CHIPS — scroll avec le contenu */}
+        <div style={{ display: 'flex', gap: 6, padding: '4px 14px 12px', overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch', background: 'var(--paper-light)',
+          borderBottom: '1px solid var(--border)' }}>
           {sections.map((s) => {
             const st = sectionStats(s, visite.data);
             const done = st.filled === st.total && st.total > 0;
@@ -2261,56 +2274,46 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
                 <span className="tabular" style={{ fontSize: 9.5, color: 'var(--taupe)' }}>{st.filled}/{st.total}</span>
                 }
               </button>);
-
           })}
-            {editMode &&
-            <button onClick={onAddSection} style={{
-              flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '6px 11px', borderRadius: 99,
-              background: 'var(--red-tint)', color: 'var(--red)',
-              border: '1px dashed var(--red)',
-              fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap'
-            }}>+ Onglet</button>
-            }
+          {editMode &&
+          <button onClick={onAddSection} style={{
+            flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4,
+            padding: '6px 11px', borderRadius: 99,
+            background: 'var(--red-tint)', color: 'var(--red)',
+            border: '1px dashed var(--red)',
+            fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap'
+          }}>+ Onglet</button>
+          }
         </div>
-      </div>
 
-      {/* BARRE TITRE ONGLET — TOUJOURS VISIBLE (hors zone scrollable) */}
-      <div style={{
-        background: activeSection.bureau ? '#F5F7F9' : 'var(--white)',
-        borderTop: '1px solid var(--border)',
-        borderBottom: '2px solid var(--ink)',
-        padding: '10px 18px',
-        display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0
-      }}>
-        <div className="tabular" style={{
-          fontSize: 24, fontWeight: 700, lineHeight: 0.9,
-          color: activeSection.bureau ? 'var(--bureau)' : 'var(--red)',
-          fontFamily: 'var(--font-display)', letterSpacing: '-0.04em', flexShrink: 0
-        }}>{String(Math.floor(activeSection.n)).padStart(2, '0')}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h3 style={{ fontSize: 14.5, fontWeight: 600, lineHeight: 1.1, letterSpacing: '-0.015em',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeSection.title}</h3>
-          <div style={{ fontSize: 10, color: 'var(--taupe)', marginTop: 1,
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeSection.subtitle}</div>
-        </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div className="tabular" style={{ fontSize: 13, fontWeight: 700,
-            color: sStats.filled === sStats.total && sStats.total > 0 ? 'var(--green)' : 'var(--ink)' }}>
-            {sStats.filled}<span style={{ color: 'var(--taupe-light)', fontWeight: 500 }}>/{sStats.total}</span>
+        {/* BARRE TITRE ONGLET — STICKY top:0, reste fixe quand on scroll dans la section */}
+        <div style={{
+          position: 'sticky', top: 0, zIndex: 5,
+          background: activeSection.bureau ? '#F5F7F9' : 'var(--white)',
+          borderTop: '1px solid var(--border)',
+          borderBottom: '2px solid var(--ink)',
+          padding: '10px 18px',
+          display: 'flex', alignItems: 'center', gap: 12
+        }}>
+          <div className="tabular" style={{
+            fontSize: 24, fontWeight: 700, lineHeight: 0.9,
+            color: activeSection.bureau ? 'var(--bureau)' : 'var(--red)',
+            fontFamily: 'var(--font-display)', letterSpacing: '-0.04em', flexShrink: 0
+          }}>{String(Math.floor(activeSection.n)).padStart(2, '0')}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h3 style={{ fontSize: 14.5, fontWeight: 600, lineHeight: 1.1, letterSpacing: '-0.015em',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeSection.title}</h3>
+            <div style={{ fontSize: 10, color: 'var(--taupe)', marginTop: 1,
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeSection.subtitle}</div>
           </div>
-          <div style={{ fontSize: 8.5, color: 'var(--taupe)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>relevés</div>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div className="tabular" style={{ fontSize: 13, fontWeight: 700,
+              color: sStats.filled === sStats.total && sStats.total > 0 ? 'var(--green)' : 'var(--ink)' }}>
+              {sStats.filled}<span style={{ color: 'var(--taupe-light)', fontWeight: 500 }}>/{sStats.total}</span>
+            </div>
+            <div style={{ fontSize: 8.5, color: 'var(--taupe)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>relevés</div>
+          </div>
         </div>
-      </div>
-
-      {/* SECTION PANEL — full focus */}
-      <div id="panel-scroll" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
-      style={{ flex: 1, overflowY: 'auto',
-        background: editMode ? '#FFF6F0' : (activeSection.bureau ? '#F5F7F9' : 'var(--white)'),
-        minHeight: 0,
-        boxShadow: editMode ? 'inset 0 0 0 3px var(--red)' : 'none',
-        transition: 'background 0.2s, box-shadow 0.2s'
-      }}>
         <div style={{ padding: '18px 18px 100px' }}>
           {activeSection.fluxLocked &&
           <div style={{
@@ -4290,22 +4293,22 @@ function App() {
     });
   };
 
-  // Formate la valeur d'un critère pour le PDF (texte court)
+  // Formate la valeur d'un critère pour le PDF (texte court, sans caractères spéciaux)
   const formatValForPDF = (c, raw) => {
     if (raw && typeof raw === 'object' && raw.na === true) return 'N/A';
     const v = getVal(raw);
-    if (v == null || v === '') return '—';
+    if (v == null || v === '') return '-';
     if (Array.isArray(v)) return v.join(', ');
     if (typeof v === 'object') {
       const parts = [];
-      if (v.presence === 'yes') parts.push('Présent');
+      if (v.presence === 'yes') parts.push('Present');
       if (v.presence === 'no') parts.push('Absent');
       if (v.nb != null && v.nb !== '') parts.push(`n=${v.nb}`);
       if (v.etat != null) {
-        const labels = ['mauvais', 'moyen', 'bon', 'très bon'];
-        parts.push(`état ${labels[Math.round(v.etat*3)] || ''}`);
+        const labels = ['mauvais', 'moyen', 'bon', 'tres bon'];
+        parts.push(`etat ${labels[Math.round(v.etat*3)] || ''}`);
       }
-      return parts.join(' · ') || '—';
+      return parts.join(' / ') || '-';
     }
     if (c.type === 'rating' && c.labels && typeof v === 'number') return c.labels[v] || `Note ${v}`;
     return String(v);
@@ -4331,12 +4334,12 @@ function App() {
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
-    doc.text('AREP × G&C · SERM HAUTS-DE-FRANCE', MARGIN, 7);
+    doc.text('AREP x G&C - SERM HAUTS-DE-FRANCE', MARGIN, 7);
     doc.setFontSize(16);
     doc.text(gare.nom, MARGIN, 15);
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.text(`${gare.cat_pro} · ${gare.cat_sgp} · ${gare.secteur}`, MARGIN, 20);
+    doc.text(`${gare.cat_pro} - ${gare.cat_sgp} - ${gare.secteur}`, MARGIN, 20);
     // Compteur droite
     const stats = visiteStats(gare, visite.data);
     doc.setFont('helvetica', 'bold');
@@ -4362,9 +4365,9 @@ function App() {
     doc.text('UIC', MARGIN + 145, y + 3.5);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text(visite.data?.visite_date || '—', MARGIN + 2, y + 8);
-    doc.text(visite.data?.visite_meteo || '—', MARGIN + 50, y + 8);
-    doc.text(auteurStr || '—', MARGIN + 95, y + 8);
+    doc.text(visite.data?.visite_date || '-', MARGIN + 2, y + 8);
+    doc.text(visite.data?.visite_meteo || '-', MARGIN + 50, y + 8);
+    doc.text(auteurStr || '-', MARGIN + 95, y + 8);
     doc.text(String(gare.uic), MARGIN + 145, y + 8);
     y += 14;
 
@@ -4378,7 +4381,7 @@ function App() {
       doc.autoTable({
         startY: y,
         head: [[
-          { content: `${String(Math.floor(s.n)).padStart(2,'0')} · ${s.title}`,
+          { content: `${String(Math.floor(s.n)).padStart(2,'0')} - ${s.title}`,
             styles: { halign: 'left' } },
           { content: `${sStats.filled}/${sStats.total}`,
             styles: { halign: 'right' } }
@@ -4387,8 +4390,8 @@ function App() {
           const raw = visite.data?.[c.id];
           const val = formatValForPDF(c, raw);
           const tags = [];
-          if (raw?.photos?.length) tags.push(`📷${raw.photos.length}`);
-          if (raw?.note) tags.push('📝');
+          if (raw?.photos?.length) tags.push(`[${raw.photos.length} photo${raw.photos.length > 1 ? 's' : ''}]`);
+          if (raw?.note) tags.push('[note]');
           return [
             { content: c.label, styles: { halign: 'left' } },
             { content: val + (tags.length ? '   ' + tags.join(' ') : ''),
@@ -4442,7 +4445,7 @@ function App() {
       doc.setTextColor(255);
       doc.setFontSize(10);
       doc.setFont('helvetica', 'bold');
-      doc.text(`Photothèque · ${allPhotos.length} photo${allPhotos.length > 1 ? 's' : ''}`, MARGIN, 8);
+      doc.text(`Photothèque - ${allPhotos.length} photo${allPhotos.length > 1 ? 's' : ''}`, MARGIN, 8);
       doc.setTextColor(0);
       doc.setFont('helvetica', 'normal');
       y = 18;
@@ -4455,8 +4458,8 @@ function App() {
       setPdfStatus({ stage: 'Téléchargement des photos…', current: 0, total: allPhotos.length });
 
       // Fetch en parallèle par batch de 4 pour ne pas saturer
-      // ⚠ Pas de resize ici : on garde la photo originale telle qu'elle a été uploadée
-      // (déjà compressée à l'upload à 1600px). jsPDF la rendra à la taille de la cellule.
+      // Pas de resize : on garde la photo originale ET on lit ses dimensions
+      // pour préserver son ratio d'aspect dans le PDF (object-fit: contain).
       const BATCH = 4;
       const processed = [];
       for (let i = 0; i < allPhotos.length; i += BATCH) {
@@ -4464,7 +4467,14 @@ function App() {
         const results = await Promise.all(batch.map(async (ph) => {
           try {
             const dataUrl = await urlToBase64(ph.p.url);
-            return { ...ph, dataUrl };
+            // Récupérer les dimensions réelles de la photo
+            const dims = await new Promise((res, rej) => {
+              const img = new Image();
+              img.onload = () => res({ w: img.width, h: img.height });
+              img.onerror = rej;
+              img.src = dataUrl;
+            });
+            return { ...ph, dataUrl, w: dims.w, h: dims.h };
           } catch (e) { return { ...ph, dataUrl: null }; }
         }));
         processed.push(...results);
@@ -4481,10 +4491,27 @@ function App() {
           y = MARGIN;
         }
         const x = MARGIN + col * (cellW + GAP);
-        // Fond
+        // Fond pour combler quand la photo ne remplit pas la cellule
         doc.setFillColor(240, 235, 224);
         doc.rect(x, y, cellW, cellH, 'F');
-        if (ph.dataUrl) {
+        if (ph.dataUrl && ph.w && ph.h) {
+          // Calculer les dimensions de dessin en préservant le ratio (object-fit: contain)
+          const photoRatio = ph.w / ph.h;
+          const cellRatio = cellW / cellH;
+          let drawW, drawH;
+          if (photoRatio > cellRatio) {
+            drawW = cellW;
+            drawH = cellW / photoRatio;
+          } else {
+            drawH = cellH;
+            drawW = cellH * photoRatio;
+          }
+          const drawX = x + (cellW - drawW) / 2;
+          const drawY = y + (cellH - drawH) / 2;
+          try { doc.addImage(ph.dataUrl, 'JPEG', drawX, drawY, drawW, drawH, undefined, 'FAST'); }
+          catch (e) { console.warn('addImage failed:', e); }
+        } else if (ph.dataUrl) {
+          // Pas de dimensions : fallback addImage avec dimensions de cellule
           try { doc.addImage(ph.dataUrl, 'JPEG', x, y, cellW, cellH, undefined, 'FAST'); }
           catch (e) { console.warn('addImage failed:', e); }
         } else {
@@ -4619,8 +4646,8 @@ function PrintScreen({ gare, visite, onBack }) {
   const stats = visiteStats(gare, visite.data);
   const dateStr = new Date(visite.updated || Date.now()).toLocaleDateString('fr-FR',
     { day: 'numeric', month: 'long', year: 'numeric' });
-  const visiteDate = visite.data?.visite_date || '—';
-  const meteo = visite.data?.visite_meteo || '—';
+  const visiteDate = visite.data?.visite_date || '-';
+  const meteo = visite.data?.visite_meteo || '-';
 
   // Helper pour afficher la valeur d'un critère
   const renderVal = (c, raw) => {
