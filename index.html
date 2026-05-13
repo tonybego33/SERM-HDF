@@ -3996,6 +3996,9 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
     setHidden('#Belgique', !sh.belgique);
     setHidden('#zone_flux', !sh.zones);
     setHidden('[id^="sg-fond-pays"]', true);
+    // ⚠ Ronds blancs natifs des gares (sg-gares-1..34) qui sont parallèles aux groupes gare-xxx
+    // → on les masque sinon ils cachent nos ronds NetworkMap (cas visible sur Tourcoing/Roubaix)
+    setHidden('[id^="sg-gares"]', true);
 
     /* Texte plein-texte : on ne garde QUE les labels >=14px ; tout le reste
        (numeros de ligne, échelle km, titre cluster, petits labels Arial) est caché. */
@@ -4012,28 +4015,9 @@ function NetworkMap({ statuses = {}, theme = {}, show = {}, style = {} }) {
       }
     });
 
-    /* CLIP des zones par le contour HDF : les zones ne débordent plus.
-       On clone les paths de sg-contour-hdf-1/2 dans un clipPath. */
-    let defsEl = svg.querySelector('defs');
-    if (!defsEl) {
-      defsEl = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-      svg.insertBefore(defsEl, svg.firstChild);
-    }
-    if (!svg.querySelector('#nm-hdf-clip')) {
-      const clip = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
-      clip.setAttribute('id', 'nm-hdf-clip');
-      ['sg-contour-hdf-1', 'sg-contour-hdf-2'].forEach(id => {
-        const orig = svg.querySelector(`#${id} path`);
-        if (orig) {
-          const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          p.setAttribute('d', orig.getAttribute('d'));
-          clip.appendChild(p);
-        }
-      });
-      defsEl.appendChild(clip);
-    }
-    const zoneFlux = svg.querySelector('#zone_flux');
-    if (zoneFlux) zoneFlux.setAttribute('clip-path', 'url(#nm-hdf-clip)');
+    /* ⚠ PLUS DE CLIPPING — les paths sg-contour-hdf-1/2 ne couvrent pas toute la zone,
+       du coup le clip découpait les zones flux et les rendait incomplètes.
+       On laisse les zones telles quelles (les paths zone-* ont déjà fill-opacity 0.22 d'origine). */
 
     /* On masque les "décorations" parasites :
        - rond-halo gris derrière Lille Flandres
