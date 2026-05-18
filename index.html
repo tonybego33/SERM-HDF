@@ -2898,7 +2898,7 @@ let SECTIONS = [
 /* ============================================================
    1. BUREAU — pré-rempli Flux/SIG (READ-ONLY tant que pas branché)
    ============================================================ */
-{ system: true, id: 'bureau', n: 0, title: 'À préparer au bureau', short: 'Bureau', icon: '✎', subtitle: 'Pré-rempli depuis Flux/SIG — verrouillé pour l\'instant', bureau: true, fluxLocked: true, criteria: [
+{ system: true, id: 'bureau', n: 0, title: 'À préparer au bureau', short: 'Bureau', icon: '✎', subtitle: 'Pré-rempli depuis Flux/SIG — verrouillé pour l\'instant', bureau: true, fluxLocked: true, skipIf: () => true, criteria: [
   { id: 'desk_densite', label: "Densité population + emplois (rayon 800 m)", type: 'rating', scale: 4, labels: ['Très faible', 'Faible', 'Moyenne', 'Forte'], tag: 'SIG' },
   { id: 'desk_voirie_cycl', label: "% voirie cyclable aménagée (rayon 800 m)", type: 'number', tag: 'SIG' },
   { id: 'desk_continuite_cycl', label: "Continuité cyclable mesurée vers la gare", type: 'rating', scale: 4, labels: ['Absente', 'Mauvaise', 'Moyenne', 'Bonne'], tag: 'SIG' },
@@ -2916,6 +2916,28 @@ let SECTIONS = [
    2. CARACTÉRISATION — base de la visite (skiplogic en cascade)
    ============================================================ */
 { system: true, id: 'carac', n: 1, title: "Caractérisation à l'arrivée", short: 'Caractér.', icon: '◯', subtitle: 'Confirmer la nature des éléments présents', carac: true, criteria: [
+  // ──── Classifications institutionnelles (déplacé depuis la Synthèse à la demande de Maram) ────
+  { _subhead: 'Typologie', id: '_carac_h_typo', label: 'Typologies institutionnelles', type: 'subhead' },
+  { id: 'synth_typo_sraddet', label: "Typologie SRADDET", type: 'choice', choices: [
+    '1- Pôle régional',
+    '2- Pôle de rabattement',
+    '3- Pôle Relais',
+    '3bis- Pôle Entrée Urbaine',
+    "4- Point d'arrêt urbain ou rural"
+  ]},
+  { id: 'synth_typo_gc', label: "Typologie Gares & Connexions", type: 'choice', choices: [
+    'Hub',
+    'Gare ville',
+    'Gare de proximité SEM',
+    'Halte SEM avec ou sans BV'
+  ]},
+  { id: 'synth_typo_radar', label: "Typologie RADAR", type: 'choice', choices: [
+    "Gare d'interconnexion",
+    'Gare zone dense',
+    'Accès bassin de vie avec TC',
+    'Accès bassin de vie sans TC'
+  ]},
+  { _subhead: 'Quais & équipements', id: '_carac_h_quais', label: 'Caractérisation physique', type: 'subhead' },
   { id: 'carac_quais_nb_acc', label: "Nombre de quais accessibles voyageurs", type: 'count' },
   { id: 'carac_quais_nb_nonacc', label: "Nombre de quais NON accessibles voyageurs", help: "Quais techniques, voies de service…", type: 'count' },
   { id: 'carac_bv_state', label: "État du bâtiment voyageurs", type: 'choice', choices: [
@@ -3214,27 +3236,7 @@ let SECTIONS = [
 /* ============================================================
    11. SYNTHÈSE — typologies institutionnelles + ressenti
    ============================================================ */
-{ system: true, id: 'synthese', n: 10, title: 'Synthèse & classifications', short: 'Synthèse', icon: '!', subtitle: 'Ressenti global + classifications institutionnelles', synth: true, criteria: [
-  { _subhead: 'Classifications', id: '_synth_h_classif', label: 'Classifications institutionnelles', type: 'subhead' },
-  { id: 'synth_typo_sraddet', label: "Typologie SRADDET", type: 'choice', choices: [
-    '1- Pôle régional',
-    '2- Pôle de rabattement',
-    '3- Pôle Relais',
-    '3bis- Pôle Entrée Urbaine',
-    '4- Point d\'arrêt urbain ou rural'
-  ]},
-  { id: 'synth_typo_gc', label: "Typologie Gares & Connexions", type: 'choice', choices: [
-    'Hub',
-    'Gare ville',
-    'Gare de proximité SEM',
-    'Halte SEM avec ou sans BV'
-  ]},
-  { id: 'synth_typo_radar', label: "Typologie RADAR", type: 'choice', choices: [
-    'Gare d\'interconnexion',
-    'Gare zone dense',
-    'Accès bassin de vie avec TC',
-    'Accès bassin de vie sans TC'
-  ]},
+{ system: true, id: 'synthese', n: 10, title: 'Synthèse & classifications', short: 'Synthèse', icon: '!', subtitle: 'Ressenti global', synth: true, criteria: [
   { _subhead: 'Ressenti global', id: '_synth_h_alertes', label: 'Ressenti global', type: 'subhead' },
   { id: 'priorite_terrain', label: "Priorité d'intervention perçue", help: "Ressenti global après visite", type: 'rating', scale: 4, labels: ['Critique', 'Élevée', 'Modérée', 'Faible'] },
   { id: 'alerte_saturation', label: "Alerte saturation / capacitaire", help: "Quai trop étroit, flux > capacité aux HP", type: 'presence' },
@@ -6475,197 +6477,6 @@ function ExportScreen({ all, onBack, onExport, onExportPhotos, onPrintPDF, onExp
   );
 }
 
-/* ============================================================
-   GRID EDIT MODAL — modale unifiée pour éditer la grille
-   Gère 4 cas selon modal.type :
-     - 'edit-crit'    : modifier un critère existant (label, help, options)
-     - 'add-crit'     : ajouter un critère (avec sélection de type)
-     - 'edit-section' : modifier le header d'un onglet
-     - 'add-section'  : créer un nouvel onglet
-   ============================================================ */
-function GridEditModal({ modal, onClose, apply, gridRev, auteur }) {
-  if (!modal) return null;
-  const { type, sectionId, critId, current } = modal;
-
-  // États du formulaire — initialisés selon le type d'action
-  const isCrit = type === 'edit-crit' || type === 'add-crit';
-  const isSection = type === 'edit-section' || type === 'add-section';
-
-  const [label, setLabel] = useState(current?.label || '');
-  const [help, setHelp] = useState(current?.help || '');
-  const [critType, setCritType] = useState(current?.type || 'presence');
-  // Pour rating
-  const [ratingLabels, setRatingLabels] = useState(
-    Array.isArray(current?.labels) ? current.labels.join('\n') : 'Absent\nInsuffisant\nCorrect\nQualitatif'
-  );
-  // Pour choice / multi
-  const [choicesText, setChoicesText] = useState(
-    Array.isArray(current?.choices) ? current.choices.join('\n') : ''
-  );
-  // Pour section
-  const [sTitle, setSTitle] = useState(current?.title || '');
-  const [sShort, setSShort] = useState(current?.short || '');
-  const [sIcon, setSIcon] = useState(current?.icon || '•');
-  const [sSubtitle, setSSubtitle] = useState(current?.subtitle || '');
-
-  const isSystem = current?.system === true;
-  const canEditType = type === 'add-crit'; // type modifiable seulement à la création
-
-  const submit = () => {
-    if (isCrit) {
-      const labels = ratingLabels.split('\n').map(s => s.trim()).filter(Boolean);
-      const choices = choicesText.split('\n').map(s => s.trim()).filter(Boolean);
-      const payload = { label: label.trim(), help: help.trim() || undefined };
-      // Ajoute les champs spécifiques selon le type
-      const tt = type === 'add-crit' ? critType : current.type;
-      if (tt === 'rating') {
-        payload.scale = labels.length || 4;
-        payload.labels = labels.length ? labels : ['Absent','Insuffisant','Correct','Qualitatif'];
-      }
-      if (tt === 'choice' || tt === 'multi') {
-        if (!choices.length) { alert('Renseigne au moins une option (une par ligne)'); return; }
-        payload.choices = choices;
-      }
-      if (!payload.label) { alert('Le libellé est obligatoire'); return; }
-
-      if (type === 'add-crit') {
-        payload.type = critType;
-        apply(() => { gridAddCriterion(sectionId, payload, auteur); return true; }, 'Question ajoutée');
-      } else {
-        apply(() => gridUpdateCriterion(sectionId, critId, payload, auteur), 'Question modifiée');
-      }
-    } else if (isSection) {
-      const payload = {
-        title: sTitle.trim(),
-        short: sShort.trim() || sTitle.trim().slice(0, 8),
-        icon: sIcon.trim() || '•',
-        subtitle: sSubtitle.trim()
-      };
-      if (!payload.title) { alert('Le titre de l\'onglet est obligatoire'); return; }
-      if (type === 'add-section') {
-        apply(() => { gridAddSection(payload, auteur); return true; }, 'Onglet créé');
-      } else {
-        apply(() => gridUpdateSection(sectionId, payload, auteur), 'Onglet modifié');
-      }
-    }
-    onClose();
-  };
-
-  const titleByType = {
-    'edit-crit': 'Modifier la question',
-    'add-crit': 'Ajouter une question',
-    'edit-section': 'Modifier l\'onglet',
-    'add-section': 'Nouvel onglet'
-  };
-
-  // Type options pour le selecteur
-  const TYPE_OPTIONS = [
-    { value: 'presence', label: 'Présence (Présent / Absent)' },
-    { value: 'pn', label: 'Présence + Nombre' },
-    { value: 'pne', label: 'Présence + Nombre + État' },
-    { value: 'count', label: 'Compteur (entier)' },
-    { value: 'number', label: 'Nombre libre' },
-    { value: 'date', label: 'Date' },
-    { value: 'rating', label: 'Note (4 niveaux avec labels custom)' },
-    { value: 'choice', label: 'Choix unique (liste)' },
-    { value: 'multi', label: 'Choix multiple (cases à cocher)' },
-    { value: 'text', label: 'Texte libre' },
-    { value: 'subhead', label: 'Sous-titre (séparateur visuel)' }
-  ];
-
-  const tt = type === 'add-crit' ? critType : current?.type;
-
-  return (
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 2000,
-      display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 0
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: 'var(--paper-light)', width: '100%', maxWidth: 560,
-        maxHeight: '92vh', overflowY: 'auto',
-        borderTopLeftRadius: 12, borderTopRightRadius: 12,
-        padding: '20px 18px 24px', boxShadow: 'var(--shadow-lg)'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={{ fontSize: 18 }}>{titleByType[type]}</h2>
-          <button onClick={onClose} style={{ fontSize: 22, color: 'var(--taupe)', padding: '4px 8px' }}>×</button>
-        </div>
-
-        {/* Critère */}
-        {isCrit && <>
-          <Field label="Libellé de la question *">
-            <input value={label} onChange={e => setLabel(e.target.value)}
-              placeholder="Ex: Présence d'une borne d'appel" style={inputStyle} autoFocus />
-          </Field>
-
-          <Field label="Aide (optionnel)">
-            <textarea value={help} onChange={e => setHelp(e.target.value)}
-              placeholder="Texte court qui apparaît sous le libellé"
-              rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
-          </Field>
-
-          <Field label={`Type de question ${canEditType ? '*' : '(non modifiable)'}`}>
-            <select value={critType} disabled={!canEditType}
-              onChange={e => setCritType(e.target.value)} style={inputStyle}>
-              {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            {!canEditType && <p style={hintStyle}>
-              Pour changer de type, supprime cette question et crée-en une nouvelle.
-            </p>}
-          </Field>
-
-          {tt === 'rating' && (
-            <Field label="Labels des 4 niveaux (un par ligne, du plus bas au plus haut)">
-              <textarea value={ratingLabels} onChange={e => setRatingLabels(e.target.value)}
-                rows={4} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 13 }} />
-            </Field>
-          )}
-
-          {(tt === 'choice' || tt === 'multi') && (
-            <Field label="Options (une par ligne) *">
-              <textarea value={choicesText} onChange={e => setChoicesText(e.target.value)}
-                rows={5} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 13 }}
-                placeholder={"Option 1\nOption 2\nOption 3"} />
-            </Field>
-          )}
-        </>}
-
-        {/* Section */}
-        {isSection && <>
-          {isSystem && type === 'edit-section' && <div style={{
-            background: 'var(--amber-tint)', padding: '8px 12px', fontSize: 12,
-            color: 'var(--amber)', marginBottom: 12, borderRadius: 4
-          }}>
-            ⚠ Onglet système — tu peux modifier son titre/sous-titre mais pas le supprimer.
-          </div>}
-          <Field label="Titre complet *">
-            <input value={sTitle} onChange={e => setSTitle(e.target.value)}
-              placeholder="Ex: Information voyageurs" style={inputStyle} autoFocus />
-          </Field>
-          <Field label="Nom court (affiché dans la barre du bas)">
-            <input value={sShort} onChange={e => setSShort(e.target.value)}
-              placeholder="Ex: Info" maxLength={12} style={inputStyle} />
-          </Field>
-          <Field label="Sous-titre (optionnel)">
-            <input value={sSubtitle} onChange={e => setSSubtitle(e.target.value)}
-              placeholder="Description courte de l'onglet" style={inputStyle} />
-          </Field>
-        </>}
-
-        <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
-          <button onClick={onClose} style={{
-            flex: 1, padding: '12px 16px', border: '1px solid var(--border)',
-            background: 'var(--paper-light)', fontWeight: 500, borderRadius: 4
-          }}>Annuler</button>
-          <button onClick={submit} style={{
-            flex: 2, padding: '12px 16px', background: 'var(--red)',
-            color: 'white', fontWeight: 600, borderRadius: 4
-          }}>{type.startsWith('add') ? 'Créer' : 'Enregistrer'}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 const inputStyle = {
   width: '100%', padding: '10px 12px', border: '1px solid var(--border)',
@@ -6755,8 +6566,6 @@ function App() {
   const [toast, setToast] = useState(null);
   const [syncing, setSyncing] = useState(false);
 
-  // Mode édition de la grille (toggle global)
-  const [editMode, setEditMode] = useState(false);
   // Compteur de révision : incrémenté à chaque modification de SECTIONS
   // → force le re-render des composants qui dépendent de la grille
   const [gridRev, setGridRev] = useState(0);
@@ -6856,63 +6665,6 @@ function App() {
     }
     // eslint-disable-next-line
   }, []);
-
-  // Wrapper qui mute SECTIONS + push Supabase + force re-render
-  const applyGridChange = useCallback((mutateFn, successMsg) => {
-    if (readOnly) { alert('Mode consultation — édition de grille désactivée'); return false; }
-    const ok = mutateFn();
-    if (ok === false) return false;
-    bumpGrid();
-    pushGrilleToSupa(auteur);
-    if (successMsg) setToast({ msg: successMsg, type: 'success' });
-    setTimeout(() => setToast(null), 1800);
-    return ok;
-  }, [auteur, bumpGrid, readOnly]);
-
-  // State de la modale d'édition de la grille
-  // editModal = null | { type, sectionId?, critId?, current? }
-  // types: 'edit-crit' | 'add-crit' | 'add-section' | 'edit-section'
-  const [editModal, setEditModal] = useState(null);
-
-  const openGridEdit = useCallback((type, sectionId, critId) => {
-    const sec = sectionId ? SECTIONS.find(s => s.id === sectionId) : null;
-    const crit = critId && sec ? (sec.criteria || []).find(c => c.id === critId) : null;
-    setEditModal({ type, sectionId, critId, current: crit || sec || null });
-  }, [gridRev]); // gridRev pour avoir la dernière version
-
-  const closeGridEdit = useCallback(() => setEditModal(null), []);
-
-  // Confirmation de suppression d'un critère
-  const confirmDeleteCrit = useCallback((sectionId, critId) => {
-    const sec = SECTIONS.find(s => s.id === sectionId);
-    const crit = (sec?.criteria || []).find(c => c.id === critId);
-    if (!crit) return;
-    const msg = `Supprimer la question "${crit.label}" ?\n\nLes réponses déjà saisies sur les visites resteront stockées en base et seront récupérables si on remet la question avec le même identifiant.`;
-    if (confirm(msg)) {
-      applyGridChange(() => gridDeleteCriterion(sectionId, critId), 'Question supprimée');
-    }
-  }, [applyGridChange, gridRev]);
-
-  // Confirmation de suppression d'un onglet
-  const confirmDeleteSection = useCallback((sectionId) => {
-    const sec = SECTIONS.find(s => s.id === sectionId);
-    if (!sec) return;
-    if (sec.system) {
-      alert(`L'onglet "${sec.title}" est un onglet système et ne peut pas être supprimé. Vous pouvez en revanche modifier ou supprimer ses questions.`);
-      return;
-    }
-    const msg = `Supprimer l'onglet "${sec.title}" et toutes ses ${(sec.criteria||[]).length} question(s) ?\n\nLes réponses déjà saisies resteront stockées en base.`;
-    if (confirm(msg)) {
-      applyGridChange(() => gridDeleteSection(sectionId), 'Onglet supprimé');
-    }
-  }, [applyGridChange, gridRev]);
-
-  // Restaurer la grille par défaut
-  const restoreDefaultGrille = useCallback(() => {
-    if (!confirm("⚠ Restaurer la grille par défaut ?\n\nToutes les modifications apportées (questions ajoutées, modifiées, supprimées, nouveaux onglets) seront perdues.\n\nLes réponses déjà saisies sur les visites ne sont PAS affectées.")) return;
-    applyGridChange(() => { gridRestoreDefault(); return true; }, 'Grille restaurée');
-  }, [applyGridChange]);
-
 
   const showToast = (msg, type = '') => {
     setToast({ msg, type });
@@ -8433,15 +8185,14 @@ function App() {
         onOpen={(g) => setRoute({ name: 'form', gareName: g })}
         onChangeAuteur={changeAuteur}
         onExportAll={() => setRoute({ name: 'export' })}
-        editMode={editMode && !readOnly}
-        onToggleEdit={readOnly ? null : (() => setEditMode(e => !e))}
-        onRestoreGrille={readOnly ? null : restoreDefaultGrille}
+        editMode={false}
+        onToggleEdit={null}
+        onRestoreGrille={null}
         readOnly={readOnly}
         isOnline={isOnline}
         pendingCount={pendingCount}
         retryingPhotos={retryingPhotos}
         gridRev={gridRev} />
-      {!readOnly && <GridEditModal modal={editModal} onClose={closeGridEdit} apply={applyGridChange} gridRev={gridRev} auteur={auteur} />}
       <Toast toast={toast} />
       <PDFProgressOverlay status={pdfStatus} />
     </>;
@@ -8489,17 +8240,16 @@ function App() {
         onBack={() => setRoute({ name: 'home' })}
         onOverview={() => setRoute({ name: 'overview', gareName: g.nom })}
         onToast={showToast}
-        editMode={editMode && !readOnly}
-        onToggleEdit={readOnly ? null : (() => setEditMode(e => !e))}
-        onEditCrit={(sid, cid) => openGridEdit('edit-crit', sid, cid)}
-        onAddCrit={(sid) => openGridEdit('add-crit', sid)}
-        onDeleteCrit={confirmDeleteCrit}
-        onEditSection={(sid) => openGridEdit('edit-section', sid)}
-        onAddSection={() => openGridEdit('add-section')}
-        onDeleteSection={confirmDeleteSection}
+        editMode={false}
+        onToggleEdit={null}
+        onEditCrit={null}
+        onAddCrit={null}
+        onDeleteCrit={null}
+        onEditSection={null}
+        onAddSection={null}
+        onDeleteSection={null}
         readOnly={readOnly}
         gridRev={gridRev} />
-      {!readOnly && <GridEditModal modal={editModal} onClose={closeGridEdit} apply={applyGridChange} gridRev={gridRev} auteur={auteur} />}
       <Toast toast={toast} />
       <PDFProgressOverlay status={pdfStatus} />
     </>;
