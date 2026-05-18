@@ -5465,7 +5465,7 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
       }
       return parts.filter(Boolean).join(' · ') || '—';
     }
-    if (c.type === 'rating' && c.labels && typeof value === 'number') { const idx = Number.isInteger(value) ? value : Math.round(value * (c.labels.length - 1)); return c.labels[idx] || `Note ${value}`; }
+    if (c.type === 'rating' && c.labels && typeof value === 'number') { const idx = Math.round(value * (c.labels.length - 1)); return c.labels[idx] || `Note ${value}`; }
     if (c.type === 'presence') return value === 'Présent' ? 'Présent' : value === 'Absent' ? 'Absent' : String(value);
     if (typeof value === 'boolean') return value ? 'Oui' : 'Non';
     return value != null ? String(value) : '—';
@@ -7162,7 +7162,7 @@ function App() {
       }
       return parts.join(' · ');
     }
-    if (c.type === 'rating' && c.labels && typeof v === 'number') { const idx = Number.isInteger(v) ? v : Math.round(v * (c.labels.length - 1)); return c.labels[idx] || `Note ${v}`; }
+    if (c.type === 'rating' && c.labels && typeof v === 'number') { const idx = Math.round(v * (c.labels.length - 1)); return c.labels[idx] || `Note ${v}`; }
     if (c.type === 'yesno') return v === true ? 'Oui' : v === false ? 'Non' : String(v);
     return String(v);
   };
@@ -8121,7 +8121,7 @@ function App() {
       }
       return parts.join(' / ') || '-';
     }
-    if (c.type === 'rating' && c.labels && typeof v === 'number') { const idx = Number.isInteger(v) ? v : Math.round(v * (c.labels.length - 1)); return c.labels[idx] || `Note ${v}`; }
+    if (c.type === 'rating' && c.labels && typeof v === 'number') { const idx = Math.round(v * (c.labels.length - 1)); return c.labels[idx] || `Note ${v}`; }
     return String(v);
   };
 
@@ -8550,7 +8550,7 @@ function PrintScreen({ gare, visite, onBack }) {
       if (v.etat != null) parts.push(`état ${Math.round(v.etat*100)}%`);
       return parts.join(' · ') || '—';
     }
-    if (c.type === 'rating' && c.labels && typeof v === 'number') { const idx = Number.isInteger(v) ? v : Math.round(v * (c.labels.length - 1)); return c.labels[idx] || `Note ${v}`; }
+    if (c.type === 'rating' && c.labels && typeof v === 'number') { const idx = Math.round(v * (c.labels.length - 1)); return c.labels[idx] || `Note ${v}`; }
     return String(v);
   };
 
