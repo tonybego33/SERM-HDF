@@ -3232,7 +3232,107 @@ const supa = (window.supabase && window.supabase.createClient)
 
 const KEY = 'serm-v3:visites';
 const loadAll = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } };
-const saveAll = (all) => { try { localStorage.setItem(KEY, JSON.stringify(all)); } catch (e) {} };
+const saveAll = (all) => { try { localStorage.setItem(KEY, JSON.stringify(all)); } catch (e) { console.warn('localStorage quota dépassé', e); } };
+
+/* ============================================================
+   INDEXEDDB — stockage persistant des photos en attente d'upload
+   ============================================================
+   But : si l'utilisateur prend une photo offline et FERME l'app
+   avant le retour réseau, le blob est préservé dans IndexedDB
+   (au lieu de localStorage qui est limité à 5 Mo).
+   Au redémarrage, on retente l'upload Supabase automatiquement.
+   ============================================================ */
+const PHOTO_DB_NAME = 'serm_photo_store';
+const PHOTO_DB_VERSION = 1;
+const PHOTO_STORE = 'pending_photos';
+let _photoDB = null;
+
+function isIndexedDBAvailable() {
+  try { return typeof indexedDB !== 'undefined' && indexedDB !== null; } catch (e) { return false; }
+}
+
+async function openPhotoDB() {
+  if (_photoDB) return _photoDB;
+  if (!isIndexedDBAvailable()) throw new Error('IndexedDB not supported');
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(PHOTO_DB_NAME, PHOTO_DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(PHOTO_STORE)) {
+        db.createObjectStore(PHOTO_STORE, { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = () => { _photoDB = req.result; resolve(req.result); };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function savePhotoBlob(id, blob, meta) {
+  const db = await openPhotoDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PHOTO_STORE, 'readwrite');
+    tx.objectStore(PHOTO_STORE).put({ id, blob, meta: meta || {}, createdAt: Date.now() });
+    tx.oncomplete = () => resolve(id);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getPhotoBlob(id) {
+  const db = await openPhotoDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PHOTO_STORE, 'readonly');
+    const req = tx.objectStore(PHOTO_STORE).get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function deletePhotoBlob(id) {
+  const db = await openPhotoDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PHOTO_STORE, 'readwrite');
+    tx.objectStore(PHOTO_STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function listAllPhotoBlobs() {
+  const db = await openPhotoDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PHOTO_STORE, 'readonly');
+    const req = tx.objectStore(PHOTO_STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// Reconstruit les blob URLs locales pour les photos pending au chargement.
+// (Les URLs object n'étant pas sérialisables, il faut les recréer après reload.)
+async function restoreBlobUrls(all) {
+  if (!isIndexedDBAvailable()) return all;
+  try {
+    const blobs = await listAllPhotoBlobs();
+    const blobMap = Object.create(null);
+    blobs.forEach(e => { if (e.blob) blobMap[e.id] = e.blob; });
+    Object.values(all).forEach(v => {
+      if (!v?.data) return;
+      Object.values(v.data).forEach(d => {
+        if (d && typeof d === 'object' && Array.isArray(d.photos)) {
+          d.photos.forEach(p => {
+            if (p?.blobId && blobMap[p.blobId]) {
+              // Recrée l'URL object pour preview en local
+              if (!p.url || (!p.url.startsWith('blob:') && !p.url.startsWith('http'))) {
+                p.url = URL.createObjectURL(blobMap[p.blobId]);
+              }
+            }
+          });
+        }
+      });
+    });
+  } catch (e) { console.warn('restoreBlobUrls failed:', e); }
+  return all;
+}
 
 /* Push one visite to Supabase (silent, non-blocking) */
 async function pushVisiteToSupa(v) {
@@ -3343,16 +3443,37 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
     if (!opts.hd) toUpload = await compressImage(file);
   } catch (e) { console.warn('Compression failed, uploading original:', e); }
 
-  // ── Fallback offline / pas de Supa : stocker en data URL avec flag pending
-  const goOffline = () => {
+  // ── Fallback offline : on stocke le BLOB dans IndexedDB (préservé même à la fermeture)
+  // Avec fallback ultime en data URL si IndexedDB indisponible.
+  const goOffline = async () => {
+    // Essai 1 : IndexedDB (préféré, capacité 50-500 MB)
+    if (isIndexedDBAvailable()) {
+      try {
+        const blobId = `${gareName}__${critId}__${Date.now()}__${Math.random().toString(36).slice(2,8)}`
+          .replace(/[^a-zA-Z0-9_-]/g, '_');
+        await savePhotoBlob(blobId, toUpload, {
+          critId, gareName, hd: !!opts.hd, name: toUpload.name
+        });
+        return {
+          blobId,                                  // ← référence IndexedDB persistante
+          url: URL.createObjectURL(toUpload),       // ← URL object pour preview immédiate
+          name: toUpload.name, local: true,
+          pending: !!supa, hd: !!opts.hd,
+          size: toUpload.size, originalSize,
+          critId, gareName
+        };
+      } catch (e) {
+        console.warn('IndexedDB save failed, fallback to data URL:', e);
+      }
+    }
+    // Essai 2 : data URL en localStorage (ancien comportement, limite ~5 MB total)
     return new Promise((resolve, reject) => {
       const r = new FileReader();
       r.onload = () => resolve({
         url: r.result, name: toUpload.name, local: true,
-        // pending: true → cette photo doit être ré-uploadée quand le réseau revient
         pending: !!supa, hd: !!opts.hd,
         size: toUpload.size, originalSize,
-        critId, gareName // métadonnées pour retry
+        critId, gareName
       });
       r.onerror = reject;
       r.readAsDataURL(toUpload);
@@ -3387,19 +3508,21 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
 }
 
 // Retry des photos pending — parcourt all et tente l'upload des photos
-// stockées localement en data URL avec pending: true
+// stockées localement (soit en IndexedDB via blobId, soit legacy en data: URL)
 async function retryPendingPhotos(all, onProgress) {
   if (!supa || (typeof navigator !== 'undefined' && navigator.onLine === false)) return all;
   let changed = false;
   const next = { ...all };
   let totalPending = 0;
   let totalDone = 0;
-  // Compter total pour le progress
+  // Compter total pour le progress (blobId OU data: URL)
   Object.values(all).forEach(v => {
     if (!v?.data) return;
     Object.values(v.data).forEach(d => {
       if (d && typeof d === 'object' && Array.isArray(d.photos)) {
-        d.photos.forEach(p => { if (p?.pending && p?.url?.startsWith('data:')) totalPending++; });
+        d.photos.forEach(p => {
+          if (p?.pending && (p?.blobId || (p?.url && p.url.startsWith('data:')))) totalPending++;
+        });
       }
     });
   });
@@ -3414,26 +3537,48 @@ async function retryPendingPhotos(all, onProgress) {
       if (!value || typeof value !== 'object' || !Array.isArray(value.photos)) continue;
       const newPhotos = [];
       for (const p of value.photos) {
-        if (p?.pending && p?.url?.startsWith('data:')) {
-          try {
+        if (!p?.pending) { newPhotos.push(p); continue; }
+
+        let file = null;
+        try {
+          if (p.blobId && isIndexedDBAvailable()) {
+            // ── Cas 1 : photo stockée dans IndexedDB
+            const entry = await getPhotoBlob(p.blobId);
+            if (entry && entry.blob) {
+              file = new File([entry.blob], p.name || 'photo.jpg', { type: entry.blob.type });
+            }
+          } else if (p.url && p.url.startsWith('data:')) {
+            // ── Cas 2 : photo legacy en data URL
             const resp = await fetch(p.url);
             const blob = await resp.blob();
-            const file = new File([blob], p.name || 'photo.jpg', { type: blob.type });
-            const uploaded = await uploadPhoto(gareName, critId, file, { hd: p.hd });
-            if (uploaded.pending) {
-              // Toujours offline, on garde
-              newPhotos.push(p);
-            } else {
-              newPhotos.push(uploaded);
-              visiteChanged = true;
-              totalDone++;
-              if (onProgress) onProgress(totalDone, totalPending);
-            }
-          } catch (e) {
-            console.warn('Retry failed for', p.name, e);
-            newPhotos.push(p);
+            file = new File([blob], p.name || 'photo.jpg', { type: blob.type });
           }
-        } else {
+
+          if (!file) {
+            // Blob introuvable (IndexedDB vidée, etc.) — on garde la photo telle quelle
+            newPhotos.push(p);
+            continue;
+          }
+
+          const uploaded = await uploadPhoto(gareName, critId, file, { hd: p.hd });
+          if (uploaded.pending) {
+            // Toujours offline → on garde
+            newPhotos.push(p);
+          } else {
+            // Upload réussi → nettoyage IndexedDB + révoque blob URL si présente
+            if (p.blobId) {
+              try { await deletePhotoBlob(p.blobId); } catch (e) {}
+            }
+            if (p.url && p.url.startsWith('blob:')) {
+              try { URL.revokeObjectURL(p.url); } catch (e) {}
+            }
+            newPhotos.push(uploaded);
+            visiteChanged = true;
+            totalDone++;
+            if (onProgress) onProgress(totalDone, totalPending);
+          }
+        } catch (e) {
+          console.warn('Retry failed for', p.name, e);
           newPhotos.push(p);
         }
       }
@@ -3450,6 +3595,14 @@ async function retryPendingPhotos(all, onProgress) {
 async function deletePhoto(photo) {
   if (photo?.path && supa) {
     try { await supa.storage.from('photos').remove([photo.path]); } catch (e) { console.warn(e); }
+  }
+  // Nettoyer IndexedDB si la photo y est encore stockée (cas pending)
+  if (photo?.blobId && isIndexedDBAvailable()) {
+    try { await deletePhotoBlob(photo.blobId); } catch (e) {}
+  }
+  // Révoquer l'URL object si présente (libère la mémoire)
+  if (photo?.url && photo.url.startsWith('blob:')) {
+    try { URL.revokeObjectURL(photo.url); } catch (e) {}
   }
 }
 
@@ -6215,6 +6368,18 @@ function App() {
   const [auteur, setAuteur] = useState(localStorage.getItem('serm-auteur') || 'Anonyme');
   const [toast, setToast] = useState(null);
   const [syncing, setSyncing] = useState(false);
+
+  // ── IndexedDB : reconstruit les blob URLs locales pour les photos pending
+  // (les URLs object n'étant pas sérialisables, il faut les recréer après reload)
+  useEffect(() => {
+    let cancelled = false;
+    restoreBlobUrls(all).then((restored) => {
+      if (cancelled || restored === all) return;
+      setAll({ ...restored });
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line
+  }, []); // Au mount seulement
 
   // Compteur de révision : incrémenté à chaque modification de SECTIONS
   // → force le re-render des composants qui dépendent de la grille
