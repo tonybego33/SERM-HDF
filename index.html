@@ -3824,6 +3824,9 @@ const getVal = (raw) => {
 };
 const getNote = (raw) => (raw && typeof raw === 'object' && !Array.isArray(raw)) ? (raw.note || '') : '';
 const getPhotos = (raw) => (raw && typeof raw === 'object' && !Array.isArray(raw)) ? (raw.photos || []) : [];
+// Tracking par critère : qui a modifié en dernier, à quel moment
+const getEditor = (raw) => (raw && typeof raw === 'object' && !Array.isArray(raw)) ? (raw._by || '') : '';
+const getEditedAt = (raw) => (raw && typeof raw === 'object' && !Array.isArray(raw)) ? (raw._at || null) : null;
 
 const isFilled = (c, raw) => {
   // Cas spécial : N/A (non applicable / ne sait pas) compte comme rempli
@@ -3854,12 +3857,17 @@ const visiteStats = (gare, data) => {
   return { filled: f, total: t, pct: t === 0 ? 0 : Math.round(f / t * 100) };
 };
 const fmtAgo = (ts) => {
-  const m = Math.floor((Date.now() - ts) / 60000);
+  if (ts == null) return '';
+  // Accepte timestamp number OU string ISO ("2026-05-20T...")
+  const tsNum = typeof ts === 'number' ? ts : new Date(ts).getTime();
+  if (!tsNum || isNaN(tsNum)) return '';
+  const m = Math.floor((Date.now() - tsNum) / 60000);
+  if (isNaN(m) || m < 0) return '';
   if (m < 1) return 'à l\'instant';
   if (m < 60) return `il y a ${m} min`;
   const h = Math.floor(m / 60);
   if (h < 24) return `il y a ${h}h`;
-  return `il y a ${Math.floor(h / 24)}j`;
+  return `il y a ${Math.floor(h / 24)} j`;
 };
 
 /* ============================================================
@@ -4692,6 +4700,19 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
 
   /* Update val while preserving note/photos if present.
      val peut être : primitive (string/number/boolean), array (multi-select), objet composite (pn/pne) */
+  // Helper : ajoute _by (auteur actuel) et _at (timestamp now) à la valeur stockée.
+  // Convertit val en objet si nécessaire pour pouvoir y mettre les meta.
+  const stampMeta = (val) => {
+    const me = localStorage.getItem('serm-auteur') || 'Anonyme';
+    const at = Date.now();
+    // Composite (pn/pne) avec presence → on enrobe quand même
+    if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
+      return { ...val, _by: me, _at: at };
+    }
+    // Primitive ou array : wrapping
+    return { val, _by: me, _at: at };
+  };
+
   const setVal = (cid, val) => {
     const cur = visite.data[cid];
     const hasExtras = cur && typeof cur === 'object' && !Array.isArray(cur)
@@ -4710,6 +4731,7 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
     }
     // Toute vraie valeur retire le flag N/A
     if (next && typeof next === 'object' && !Array.isArray(next)) delete next.na;
+    next = stampMeta(next);
     onUpdate({ ...visite, data: { ...visite.data, [cid]: next }, updated: Date.now() });
   };
   const clearVal = (cid) => {
@@ -4721,19 +4743,21 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
   const setNA = (cid) => {
     const cur = visite.data[cid];
     const obj = (cur && typeof cur === 'object' && !Array.isArray(cur)) ? cur : {};
-    // On garde note et photos s'il y en a, et on ajoute na: true
-    onUpdate({ ...visite, data: { ...visite.data, [cid]: { ...obj, na: true } }, updated: Date.now() });
+    const next = stampMeta({ ...obj, na: true });
+    onUpdate({ ...visite, data: { ...visite.data, [cid]: next }, updated: Date.now() });
   };
   /* Update note (always promotes data[id] to object form) */
   const setNote = (cid, note) => {
     const cur = visite.data[cid];
     const obj = (cur && typeof cur === 'object' && !Array.isArray(cur)) ? cur : { val: cur };
-    onUpdate({ ...visite, data: { ...visite.data, [cid]: { ...obj, note } }, updated: Date.now() });
+    const next = stampMeta({ ...obj, note });
+    onUpdate({ ...visite, data: { ...visite.data, [cid]: next }, updated: Date.now() });
   };
   const setPhotos = (cid, photos) => {
     const cur = visite.data[cid];
     const obj = (cur && typeof cur === 'object' && !Array.isArray(cur)) ? cur : { val: cur };
-    onUpdate({ ...visite, data: { ...visite.data, [cid]: { ...obj, photos } }, updated: Date.now() });
+    const next = stampMeta({ ...obj, photos });
+    onUpdate({ ...visite, data: { ...visite.data, [cid]: next }, updated: Date.now() });
   };
 
   // Auto-advance helper
@@ -5487,6 +5511,20 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
         display: 'inline-flex', alignItems: 'center', gap: 5,
         fontWeight: 500
       }}>⊘ Non applicable / Ne sait pas</button>
+      }
+
+      {/* SIGNATURE — qui a modifié quoi en dernier */}
+      {(getEditor(raw) || getEditedAt(raw)) &&
+      <div style={{
+        marginTop: 10, paddingTop: 8, borderTop: '1px dashed var(--border)',
+        fontSize: 10.5, color: 'var(--taupe)', display: 'flex',
+        alignItems: 'center', gap: 6, fontFamily: 'var(--font-display)',
+        letterSpacing: '0.02em'
+      }}>
+        <span style={{ opacity: 0.7 }}>✎</span>
+        {getEditor(raw) && <span><strong style={{ color: 'var(--ink-soft)', fontWeight: 600 }}>{getEditor(raw)}</strong></span>}
+        {getEditedAt(raw) && <span style={{ opacity: 0.8 }}>· {fmtAgo(getEditedAt(raw))}</span>}
+      </div>
       }
     </div>);
 
