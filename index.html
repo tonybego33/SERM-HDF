@@ -2948,7 +2948,6 @@ let SECTIONS = [
     'Absence de BV',
     'Nouvelle station sans BV'
   ]},
-  { id: 'carac_bv_sdap', label: "Accessibilité SDAP", help: "Schéma Directeur d'Accessibilité Programmée — en s'appuyant sur l'étude RADAR", type: 'choice', choices: ['SDAP', 'Non SDAP', 'Inconnu'] },
   { id: 'carac_parking_nb', label: "Nombre de parkings distincts", help: "Plusieurs parkings = des feuilles parking séparées plus loin", type: 'count' },
   { id: 'carac_parking_types', label: "Type(s) de stationnement présents", help: "Plusieurs choix possibles — ouvre une feuille par type", type: 'multi', choices: [
     'Stationnement urbain à proximité',
@@ -3197,6 +3196,9 @@ let SECTIONS = [
    10. ACCESSIBILITÉ PMR — nouvelle section (4 sous-blocs)
    ============================================================ */
 { system: true, id: 'pmr', n: 9, title: 'Accessibilité PMR', short: 'PMR', icon: '♿', subtitle: "Tous handicaps — moteur, visuel, auditif, intellectuel/psychique", criteria: [
+  // ── Classification réglementaire
+  { _subhead: 'Classification', id: '_pmr_h_classif', label: 'Classification réglementaire', type: 'subhead' },
+  { id: 'carac_bv_sdap', label: "Accessibilité SDAP", help: "Schéma Directeur d'Accessibilité Programmée — en s'appuyant sur l'étude RADAR", type: 'choice', choices: ['SDAP', 'Non SDAP', 'Inconnu'] },
   // ── Sous-bloc Moteur
   { _subhead: 'Handicap moteur', id: '_pmr_h_moteur', label: 'Handicap moteur', type: 'subhead' },
   { id: 'pmr_m_rampe', label: "Rampe PMR", type: 'presence' },
