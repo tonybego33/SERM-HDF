@@ -1,5 +1,6 @@
 <!DOCTYPE html><html lang="fr"><head>
 
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#C8102E">
@@ -2857,34 +2858,6 @@ const GARES = [
 ];
 
 /* ============================================================
-   TYPOLOGIE DE GARE — d'après plan de voies (réf. Beuret)
-   https://beuret.net/typologie-des-gares/
-   Adapté au contexte SERM HDF (réseau TER existant, urbain/périurbain)
-   ============================================================ */
-const TYPOLOGIES = [
-  'Halte simple (1 voie, 1 quai)',
-  'Halte double (2 voies, 2 quais latéraux)',
-  'Halte centrale (1 quai entre 2 voies)',
-  'Halte avec PN (quais reliés par passage à niveau)',
-  'Gare de croisement (avec BV)',
-  'Gare de bifurcation',
-  'PEM de centralité',
-  'Gare terminus / cul-de-sac'
-];
-
-/* Déduit la typologie depuis cat_sgp / config / quais / nom */
-const getTypologie = (gare) => {
-  if (!gare) return TYPOLOGIES[1];
-  if (gare.nom === 'Lille Flandres') return 'Gare terminus / cul-de-sac';
-  if (gare.cat_sgp === 'PEM de centralité') return 'PEM de centralité';
-  if (gare.config === 'unilaterale' || gare.quais === 1) return 'Halte simple (1 voie, 1 quai)';
-  if (gare.quais === 2) return 'Halte double (2 voies, 2 quais latéraux)';
-  if (gare.quais === 3) return 'Gare de croisement (avec BV)';
-  if (gare.quais >= 4) return 'Gare de bifurcation';
-  return 'Halte double (2 voies, 2 quais latéraux)';
-};
-
-/* ============================================================
    SECTIONS — grille refondue en mode RECENSEMENT
    ⚠ DEVENUE MUTABLE : peut être remplacée par la config Supabase
    Les sections "système" (avec skipIf ou clé fonctionnelle)
@@ -4523,7 +4496,7 @@ function PickerScreen({ all, onPick, onBack }) {
                   <div style={{ fontSize: 14.5, fontWeight: 500 }}>{g.nom}</div>
                   <div style={{ fontSize: 10, color: 'var(--taupe)', letterSpacing: '0.06em',
                     textTransform: 'uppercase', marginTop: 3 }}>
-                    {g.ligne_flux} · {g.secteur} · <span style={{ color: 'var(--ink-soft)', fontStyle: 'normal' }}>{getTypologie(g).split(' (')[0]}</span>
+                    {g.ligne_flux} · {g.secteur} · {g.cat_sgp && <span style={{ color: 'var(--ink-soft)', fontStyle: 'normal' }}>{g.cat_sgp}</span>}
                   </div>
                 </div>
                 {done && <span style={{ color: 'var(--green)', fontSize: 18 }}>✓</span>}
@@ -4705,7 +4678,7 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
               fontSize: 10, color: 'var(--ink-soft)', fontWeight: 500, letterSpacing: '0.02em'
             }}>
               <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--ink-soft)' }} />
-              {getTypologie(gare)}
+              {gare.cat_sgp || gare.cat_pro || '—'}
             </div>
           </div>
           <ProgressRing pct={stats.pct} size={48} />
@@ -4751,7 +4724,6 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
               <option value="Soleil">Soleil</option>
               <option value="Couvert">Couvert</option>
               <option value="Pluie">Pluie</option>
-              <option value="Neige">Neige</option>
               <option value="Brouillard">Brouillard</option>
             </select>
           </label>
@@ -6469,7 +6441,7 @@ function App() {
       const stats = g ? visiteStats(g, v.data) : { pct: 0 };
       const row = [
         v.gare,
-        g ? getTypologie(g) : '',
+        g?.cat_sgp || '',
         g?.cat_pro || '', g?.cat_sgp || '', g?.ligne_flux || '', g?.axe || '', g?.secteur || '',
         v.auteur || '',
         new Date(v.updated || Date.now()).toISOString(),
@@ -6540,7 +6512,7 @@ function App() {
         visites: visites.map((v) => ({
           gare: v.gare,
           gare_info: GARES.find((g) => g.nom === v.gare) || null,
-          typologie: (() => { const g = GARES.find((x) => x.nom === v.gare); return g ? getTypologie(g) : null; })(),
+          typologie: (() => { const g = GARES.find((x) => x.nom === v.gare); return g?.cat_sgp || null; })(),
           auteur: v.auteur || null,
           updated: v.updated || null,
           data: v.data || {}
