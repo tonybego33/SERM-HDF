@@ -3519,6 +3519,12 @@ function hydrateSections(secs) {
   });
 }
 
+// ⚠ Version de la grille codée en dur.
+// À INCRÉMENTER à chaque modification structurelle (ajout/suppression de critère,
+// déplacement entre sections, etc.) pour forcer la mise à jour automatique
+// de la grille Supabase chez tous les utilisateurs au prochain chargement.
+const GRID_VERSION = '2026-05-18-v62-pmr-sdap';
+
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
   if (!supa) return;
@@ -3527,13 +3533,14 @@ async function pushGrilleToSupa(by) {
       id: 'active',
       sections: serializeSections(SECTIONS),
       updated_at: new Date().toISOString(),
-      updated_by: by || 'Anonyme'
+      updated_by: by || 'Anonyme',
+      version: GRID_VERSION
     });
     if (error) console.warn('Grille push:', error);
   } catch (e) { console.warn('Grille push failed:', e); }
 }
 
-// Pull la grille depuis Supabase. Si vide, on push la grille par défaut.
+// Pull la grille depuis Supabase. Si vide OU version obsolète, on push la grille du code.
 async function pullGrilleFromSupa() {
   if (!supa) return null;
   try {
@@ -3542,6 +3549,13 @@ async function pullGrilleFromSupa() {
     if (!data || !data.sections) {
       // Première fois : on initialise la table avec la grille par défaut
       await pushGrilleToSupa('init');
+      return null;
+    }
+    if (data.version !== GRID_VERSION) {
+      // ⚠ Grille Supabase obsolète — on FORCE le push de la grille du code
+      // (la grille du code est toujours la "source de vérité" du référentiel).
+      console.info(`Grille obsolète (${data.version || 'sans version'}), migration → ${GRID_VERSION}`);
+      await pushGrilleToSupa('migration-auto');
       return null;
     }
     SECTIONS = hydrateSections(data.sections);
