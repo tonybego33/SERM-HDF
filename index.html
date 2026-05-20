@@ -1,5 +1,6 @@
 <!DOCTYPE html><html lang="fr"><head>
 
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#C8102E">
@@ -3664,23 +3665,24 @@ async function pushGrilleToSupa(by) {
   } catch (e) { console.warn('Grille push failed:', e); }
 }
 
-// Pull la grille depuis Supabase. Si vide OU version obsolète, on push la grille du code.
+// Pull la grille depuis Supabase. Si vide, on push la grille du code (init seulement).
+// ⚠ La grille Supabase est désormais la SOURCE DE VÉRITÉ (depuis que Maram édite)
+// → on ne force PLUS la migration vers la version code, sinon ses modifs sont écrasées.
+// Le code reste juste un fallback initial si la table grille_config est vide.
 async function pullGrilleFromSupa() {
   if (!supa) return null;
   try {
     const { data, error } = await supa.from('grille_config').select('*').eq('id', 'active').maybeSingle();
     if (error) { console.warn('Grille pull:', error); return null; }
     if (!data || !data.sections) {
-      // Première fois : on initialise la table avec la grille par défaut
+      // Première fois : on initialise la table avec la grille par défaut du code
       await pushGrilleToSupa('init');
       return null;
     }
-    if (data.version !== GRID_VERSION) {
-      // ⚠ Grille Supabase obsolète — on FORCE le push de la grille du code
-      // (la grille du code est toujours la "source de vérité" du référentiel).
-      console.info(`Grille obsolète (${data.version || 'sans version'}), migration → ${GRID_VERSION}`);
-      await pushGrilleToSupa('migration-auto');
-      return null;
+    // On affiche un avertissement console si la version Supabase diffère du code
+    // (utile pour le dev, mais on NE force PLUS le push)
+    if (data.version && data.version !== GRID_VERSION) {
+      console.info(`Grille Supabase (${data.version}) ≠ grille code (${GRID_VERSION}) — utilise Supabase comme source de vérité`);
     }
     SECTIONS = hydrateSections(data.sections);
     return SECTIONS;
@@ -3796,6 +3798,65 @@ function gridDeleteSection(sectionId) {
 // Restaurer la grille par défaut (panic button)
 function gridRestoreDefault() {
   SECTIONS = DEFAULT_SECTIONS.map(s => ({...s, criteria: [...(s.criteria||[])]}));
+}
+
+/* ============================================================
+   EXPORT GRILLE — génère un fichier .js prêt à intégrer dans le HTML
+   Permet à Tony de récupérer les modifications faites par Maram dans
+   l'éditeur visuel et de les replier dans le code source final.
+   ============================================================ */
+function exportSectionsAsJS(auteur) {
+  // Sérialise une section en gardant les props pertinentes (skipIf est une
+  // fonction non-sérialisable → on la convertit en commentaire TODO)
+  const serializeSection = (s) => {
+    const keys = ['system', 'id', 'n', 'title', 'short', 'icon', 'subtitle',
+                  'bureau', 'fluxLocked', 'carac', 'synth'];
+    const out = {};
+    keys.forEach(k => { if (s[k] !== undefined) out[k] = s[k]; });
+    if (typeof s.skipIf === 'function') {
+      out._WARN_skipIf = '⚠ Cette section a une fonction skipIf à recopier manuellement depuis le code source';
+    }
+    out.criteria = (s.criteria || []).map(c => {
+      const cOut = {};
+      ['id', 'label', 'help', 'type', 'scale', 'choices', 'labels', '_subhead',
+       'createdBy', 'createdAt', 'updatedBy', 'updatedAt'].forEach(k => {
+        if (c[k] !== undefined) cOut[k] = c[k];
+      });
+      return cOut;
+    });
+    return out;
+  };
+
+  const data = SECTIONS.map(serializeSection);
+  const now = new Date();
+  const ts = now.toISOString();
+  const dateStr = now.toLocaleString('fr-FR');
+
+  let code = `// ============================================================\n`;
+  code += `// SECTIONS — Export depuis l'app SERM HDF\n`;
+  code += `// Date         : ${dateStr}\n`;
+  code += `// Exporté par  : ${auteur || 'Anonyme'}\n`;
+  code += `// Source       : grille_config Supabase (live)\n`;
+  code += `//\n`;
+  code += `// MODE D'EMPLOI :\n`;
+  code += `// 1. Ouvrir le HTML source dans un éditeur\n`;
+  code += `// 2. Rechercher "let SECTIONS = ["\n`;
+  code += `// 3. Remplacer ce bloc par le code ci-dessous\n`;
+  code += `// 4. ⚠ Vérifier les sections marquées "_WARN_skipIf" et\n`;
+  code += `//    recopier manuellement les fonctions skipIf depuis l'ancien code\n`;
+  code += `// 5. Pusher le HTML, et incrémenter GRID_VERSION si besoin\n`;
+  code += `// ============================================================\n\n`;
+  code += `let SECTIONS = ${JSON.stringify(data, null, 2)};\n`;
+
+  const blob = new Blob([code], { type: 'text/javascript;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `SECTIONS_grille_${ts.slice(0, 10)}_${ts.slice(11, 16).replace(':','h')}.js`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /* ============================================================
@@ -4709,6 +4770,10 @@ function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, 
                 color: 'rgba(245,242,235,0.6)', fontSize: 9.5, letterSpacing: '0.1em',
                 textTransform: 'uppercase', fontWeight: 600
               }}>↺ Restaurer</button>}
+              {editMode && <button onClick={() => exportSectionsAsJS(auteur)} style={{
+                color: 'rgba(245,242,235,0.85)', fontSize: 9.5, letterSpacing: '0.1em',
+                textTransform: 'uppercase', fontWeight: 600
+              }} title="Télécharge un .js prêt à intégrer dans le HTML source">⇣ Grille .js</button>}
               <button onClick={onExportAll} style={{
                 color: 'rgba(245,242,235,0.85)', fontSize: 9.5, letterSpacing: '0.1em',
                 textTransform: 'uppercase', fontWeight: 600, padding: 0
