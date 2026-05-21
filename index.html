@@ -3756,16 +3756,20 @@ const GRID_VERSION = '2026-05-18-v62-pmr-sdap';
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
   if (!supa) return;
-  try {
-    const { error } = await supa.from('grille_config').upsert({
-      id: 'active',
-      sections: serializeSections(SECTIONS),
-      updated_at: new Date().toISOString(),
-      updated_by: by || 'Anonyme',
-      version: GRID_VERSION
-    });
-    if (error) console.warn('Grille push:', error);
-  } catch (e) { console.warn('Grille push failed:', e); }
+  // Payload complet → fallback minimal si la table n'a pas toutes les colonnes
+  const payloads = [
+    { id: 'active', sections: serializeSections(SECTIONS), updated_at: new Date().toISOString(), updated_by: by || 'Anonyme', version: GRID_VERSION },
+    { id: 'active', sections: serializeSections(SECTIONS), updated_at: new Date().toISOString(), updated_by: by || 'Anonyme' },
+    { id: 'active', sections: serializeSections(SECTIONS), updated_at: new Date().toISOString() },
+    { id: 'active', sections: serializeSections(SECTIONS) }
+  ];
+  for (const payload of payloads) {
+    try {
+      const { error } = await supa.from('grille_config').upsert(payload);
+      if (!error) return; // ✓ marché, on arrête
+      console.warn('Grille push (payload', Object.keys(payload).join(','), '):', error.message || error);
+    } catch (e) { console.warn('Grille push failed:', e); }
+  }
 }
 
 // Pull la grille depuis Supabase. Si vide, on push la grille du code (init seulement).
