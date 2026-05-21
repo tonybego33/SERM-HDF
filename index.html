@@ -3179,6 +3179,7 @@ let SECTIONS = [
   { id: 'quai_ecran_iv_tc', label: "Écrans IV TC", type: 'count' },
   { id: 'quai_cendrier', label: "Cendrier", type: 'presence' },
   { id: 'quai_horloge', label: "Horloge", type: 'presence' },
+  { id: 'quai_defibrillateur', label: "Défibrillateur", type: 'presence' },
   { id: 'quai_valideurs', label: "Valideurs (titres TER)", type: 'pn' },
   { id: 'quai_automate_billet', label: "Automates de vente de billets", type: 'count' },
   { id: 'quai_signal_quais', label: "Signalétique entrée/sortie quais", type: 'presence' },
@@ -3742,8 +3743,22 @@ function serializeSections(secs) {
 // Désérialiser : rétablir skipIf pour les sections système
 function hydrateSections(secs) {
   return secs.map(s => {
-    if (SYSTEM_SKIPIF[s.id]) return {...s, skipIf: SYSTEM_SKIPIF[s.id]};
-    return s;
+    const hydrated = SYSTEM_SKIPIF[s.id] ? {...s, skipIf: SYSTEM_SKIPIF[s.id]} : {...s};
+
+    // Migration locale : garantit que la question "Défibrillateur" existe aussi dans l'onglet Quais,
+    // même si une ancienne grille Supabase est encore utilisée comme source.
+    if (hydrated.id === 'quais') {
+      const criteria = Array.isArray(hydrated.criteria) ? [...hydrated.criteria] : [];
+      if (!criteria.some(c => c.id === 'quai_defibrillateur')) {
+        const insertAfter = criteria.findIndex(c => c.id === 'quai_horloge');
+        const defibCrit = { id: 'quai_defibrillateur', label: "Défibrillateur", type: 'presence' };
+        if (insertAfter >= 0) criteria.splice(insertAfter + 1, 0, defibCrit);
+        else criteria.push(defibCrit);
+      }
+      hydrated.criteria = criteria;
+    }
+
+    return hydrated;
   });
 }
 
@@ -3751,7 +3766,7 @@ function hydrateSections(secs) {
 // À INCRÉMENTER à chaque modification structurelle (ajout/suppression de critère,
 // déplacement entre sections, etc.) pour forcer la mise à jour automatique
 // de la grille Supabase chez tous les utilisateurs au prochain chargement.
-const GRID_VERSION = '2026-05-18-v62-pmr-sdap';
+const GRID_VERSION = '2026-05-21-v63-quais-defib-no-edit-mode';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
@@ -3808,162 +3823,6 @@ function setupGrilleRealtime(onChange) {
       .subscribe();
     return () => { try { supa.removeChannel(channel); } catch (e) {} };
   } catch (e) { console.warn('Grille realtime failed:', e); return () => {}; }
-}
-
-/* === Manipulation de la grille — utilitaires CRUD === */
-
-// Génère un ID unique pour un nouveau critère ou onglet
-function genId(prefix) {
-  const slug = prefix.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 20);
-  return `custom_${slug}_${Date.now().toString(36)}`;
-}
-
-// Ajouter un critère à la fin d'une section
-function gridAddCriterion(sectionId, criterion, by) {
-  const idx = SECTIONS.findIndex(s => s.id === sectionId);
-  if (idx < 0) return false;
-  const newCrit = {
-    ...criterion,
-    id: criterion.id || genId(criterion.label || 'crit'),
-    createdBy: by || 'Anonyme',
-    updatedBy: by || 'Anonyme',
-    updatedAt: Date.now()
-  };
-  SECTIONS[idx] = { ...SECTIONS[idx], criteria: [...(SECTIONS[idx].criteria || []), newCrit] };
-  return newCrit.id;
-}
-
-// Modifier un critère existant (libellé, help, options/labels) — pas l'ID, pas le type
-function gridUpdateCriterion(sectionId, critId, updates, by) {
-  const idx = SECTIONS.findIndex(s => s.id === sectionId);
-  if (idx < 0) return false;
-  const crits = (SECTIONS[idx].criteria || []).map(c =>
-    c.id === critId ? {
-      ...c, ...updates,
-      id: c.id, type: c.type, // protégés
-      createdBy: c.createdBy, // pas écrasé
-      updatedBy: by || 'Anonyme',
-      updatedAt: Date.now()
-    } : c
-  );
-  SECTIONS[idx] = { ...SECTIONS[idx], criteria: crits };
-  return true;
-}
-
-// Supprimer un critère (soft : on le retire de la grille, mais les
-// réponses déjà saisies restent dans visites.data, récupérables si
-// on remet la question avec le même ID)
-function gridDeleteCriterion(sectionId, critId) {
-  const idx = SECTIONS.findIndex(s => s.id === sectionId);
-  if (idx < 0) return false;
-  const crits = (SECTIONS[idx].criteria || []).filter(c => c.id !== critId);
-  SECTIONS[idx] = { ...SECTIONS[idx], criteria: crits };
-  return true;
-}
-
-// Ajouter un nouvel onglet (non-system)
-function gridAddSection(section, by) {
-  const newSec = {
-    system: false,
-    id: section.id || genId(section.title || section.short || 'onglet'),
-    n: section.n != null ? section.n : (SECTIONS.length),
-    title: section.title || 'Nouvel onglet',
-    short: section.short || (section.title || 'Onglet').slice(0, 8),
-    icon: section.icon || '•',
-    subtitle: section.subtitle || '',
-    criteria: section.criteria || [],
-    createdBy: by || 'Anonyme',
-    updatedBy: by || 'Anonyme',
-    updatedAt: Date.now()
-  };
-  SECTIONS = [...SECTIONS, newSec];
-  return newSec.id;
-}
-
-// Modifier le header d'un onglet (titre, short, icon, subtitle)
-function gridUpdateSection(sectionId, updates, by) {
-  const idx = SECTIONS.findIndex(s => s.id === sectionId);
-  if (idx < 0) return false;
-  const allowed = {};
-  ['title', 'short', 'icon', 'subtitle'].forEach(k => { if (updates[k] !== undefined) allowed[k] = updates[k]; });
-  SECTIONS[idx] = {
-    ...SECTIONS[idx], ...allowed,
-    updatedBy: by || 'Anonyme',
-    updatedAt: Date.now()
-  };
-  return true;
-}
-
-// Supprimer un onglet (interdit pour les sections system)
-function gridDeleteSection(sectionId) {
-  const sec = SECTIONS.find(s => s.id === sectionId);
-  if (!sec || sec.system) return false;
-  SECTIONS = SECTIONS.filter(s => s.id !== sectionId);
-  return true;
-}
-
-// Restaurer la grille par défaut (panic button)
-function gridRestoreDefault() {
-  SECTIONS = DEFAULT_SECTIONS.map(s => ({...s, criteria: [...(s.criteria||[])]}));
-}
-
-/* ============================================================
-   EXPORT GRILLE — génère un fichier .js prêt à intégrer dans le HTML
-   Permet à Tony de récupérer les modifications faites par Maram dans
-   l'éditeur visuel et de les replier dans le code source final.
-   ============================================================ */
-function exportSectionsAsJS(auteur) {
-  // Sérialise une section en gardant les props pertinentes (skipIf est une
-  // fonction non-sérialisable → on la convertit en commentaire TODO)
-  const serializeSection = (s) => {
-    const keys = ['system', 'id', 'n', 'title', 'short', 'icon', 'subtitle',
-                  'bureau', 'fluxLocked', 'carac', 'synth'];
-    const out = {};
-    keys.forEach(k => { if (s[k] !== undefined) out[k] = s[k]; });
-    if (typeof s.skipIf === 'function') {
-      out._WARN_skipIf = '⚠ Cette section a une fonction skipIf à recopier manuellement depuis le code source';
-    }
-    out.criteria = (s.criteria || []).map(c => {
-      const cOut = {};
-      ['id', 'label', 'help', 'type', 'scale', 'choices', 'labels', '_subhead',
-       'createdBy', 'createdAt', 'updatedBy', 'updatedAt'].forEach(k => {
-        if (c[k] !== undefined) cOut[k] = c[k];
-      });
-      return cOut;
-    });
-    return out;
-  };
-
-  const data = SECTIONS.map(serializeSection);
-  const now = new Date();
-  const ts = now.toISOString();
-  const dateStr = now.toLocaleString('fr-FR');
-
-  let code = `// ============================================================\n`;
-  code += `// SECTIONS — Export depuis l'app SERM HDF\n`;
-  code += `// Date         : ${dateStr}\n`;
-  code += `// Exporté par  : ${auteur || 'Anonyme'}\n`;
-  code += `// Source       : grille_config Supabase (live)\n`;
-  code += `//\n`;
-  code += `// MODE D'EMPLOI :\n`;
-  code += `// 1. Ouvrir le HTML source dans un éditeur\n`;
-  code += `// 2. Rechercher "let SECTIONS = ["\n`;
-  code += `// 3. Remplacer ce bloc par le code ci-dessous\n`;
-  code += `// 4. ⚠ Vérifier les sections marquées "_WARN_skipIf" et\n`;
-  code += `//    recopier manuellement les fonctions skipIf depuis l'ancien code\n`;
-  code += `// 5. Pusher le HTML, et incrémenter GRID_VERSION si besoin\n`;
-  code += `// ============================================================\n\n`;
-  code += `let SECTIONS = ${JSON.stringify(data, null, 2)};\n`;
-
-  const blob = new Blob([code], { type: 'text/javascript;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `SECTIONS_grille_${ts.slice(0, 10)}_${ts.slice(11, 16).replace(':','h')}.js`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /* ============================================================
@@ -4522,201 +4381,9 @@ function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, to
 }
 
 /* ============================================================
-   GRID EDIT MODAL — modale unifiée pour éditer la grille
-   Gère 4 cas selon modal.type :
-     - 'edit-crit'    : modifier un critère existant (label, help, options)
-     - 'add-crit'     : ajouter un critère (avec sélection de type)
-     - 'edit-section' : modifier le header d'un onglet
-     - 'add-section'  : créer un nouvel onglet
-   ============================================================ */
-function GridEditModal({ modal, onClose, apply, gridRev, auteur }) {
-  if (!modal) return null;
-  const { type, sectionId, critId, current } = modal;
-
-  // États du formulaire — initialisés selon le type d'action
-  const isCrit = type === 'edit-crit' || type === 'add-crit';
-  const isSection = type === 'edit-section' || type === 'add-section';
-
-  const [label, setLabel] = useState(current?.label || '');
-  const [help, setHelp] = useState(current?.help || '');
-  const [critType, setCritType] = useState(current?.type || 'presence');
-  // Pour rating
-  const [ratingLabels, setRatingLabels] = useState(
-    Array.isArray(current?.labels) ? current.labels.join('\n') : 'Absent\nInsuffisant\nCorrect\nQualitatif'
-  );
-  // Pour choice / multi
-  const [choicesText, setChoicesText] = useState(
-    Array.isArray(current?.choices) ? current.choices.join('\n') : ''
-  );
-  // Pour section
-  const [sTitle, setSTitle] = useState(current?.title || '');
-  const [sShort, setSShort] = useState(current?.short || '');
-  const [sIcon, setSIcon] = useState(current?.icon || '•');
-  const [sSubtitle, setSSubtitle] = useState(current?.subtitle || '');
-
-  const isSystem = current?.system === true;
-  const canEditType = type === 'add-crit'; // type modifiable seulement à la création
-
-  const submit = () => {
-    if (isCrit) {
-      const labels = ratingLabels.split('\n').map(s => s.trim()).filter(Boolean);
-      const choices = choicesText.split('\n').map(s => s.trim()).filter(Boolean);
-      const payload = { label: label.trim(), help: help.trim() || undefined };
-      // Ajoute les champs spécifiques selon le type
-      const tt = type === 'add-crit' ? critType : current.type;
-      if (tt === 'rating') {
-        payload.scale = labels.length || 4;
-        payload.labels = labels.length ? labels : ['Absent','Insuffisant','Correct','Qualitatif'];
-      }
-      if (tt === 'choice' || tt === 'multi') {
-        if (!choices.length) { alert('Renseigne au moins une option (une par ligne)'); return; }
-        payload.choices = choices;
-      }
-      if (!payload.label) { alert('Le libellé est obligatoire'); return; }
-
-      if (type === 'add-crit') {
-        payload.type = critType;
-        apply(() => { gridAddCriterion(sectionId, payload, auteur); return true; }, 'Question ajoutée');
-      } else {
-        apply(() => gridUpdateCriterion(sectionId, critId, payload, auteur), 'Question modifiée');
-      }
-    } else if (isSection) {
-      const payload = {
-        title: sTitle.trim(),
-        short: sShort.trim() || sTitle.trim().slice(0, 8),
-        icon: sIcon.trim() || '•',
-        subtitle: sSubtitle.trim()
-      };
-      if (!payload.title) { alert('Le titre de l\'onglet est obligatoire'); return; }
-      if (type === 'add-section') {
-        apply(() => { gridAddSection(payload, auteur); return true; }, 'Onglet créé');
-      } else {
-        apply(() => gridUpdateSection(sectionId, payload, auteur), 'Onglet modifié');
-      }
-    }
-    onClose();
-  };
-
-  const titleByType = {
-    'edit-crit': 'Modifier la question',
-    'add-crit': 'Ajouter une question',
-    'edit-section': 'Modifier l\'onglet',
-    'add-section': 'Nouvel onglet'
-  };
-
-  // Type options pour le selecteur
-  const TYPE_OPTIONS = [
-    { value: 'presence', label: 'Présence (Présent / Absent)' },
-    { value: 'pn', label: 'Présence + Nombre' },
-    { value: 'pne', label: 'Présence + Nombre + État' },
-    { value: 'count', label: 'Compteur (entier)' },
-    { value: 'number', label: 'Nombre libre' },
-    { value: 'date', label: 'Date' },
-    { value: 'rating', label: 'Note (4 niveaux avec labels custom)' },
-    { value: 'choice', label: 'Choix unique (liste)' },
-    { value: 'multi', label: 'Choix multiple (cases à cocher)' },
-    { value: 'text', label: 'Texte libre' },
-    { value: 'subhead', label: 'Sous-titre (séparateur visuel)' }
-  ];
-
-  const tt = type === 'add-crit' ? critType : current?.type;
-
-  return (
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 2000,
-      display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 0
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: 'var(--paper-light)', width: '100%', maxWidth: 560,
-        maxHeight: '92vh', overflowY: 'auto',
-        borderTopLeftRadius: 12, borderTopRightRadius: 12,
-        padding: '20px 18px 24px', boxShadow: 'var(--shadow-lg)'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={{ fontSize: 18 }}>{titleByType[type]}</h2>
-          <button onClick={onClose} style={{ fontSize: 22, color: 'var(--taupe)', padding: '4px 8px' }}>×</button>
-        </div>
-
-        {/* Critère */}
-        {isCrit && <>
-          <Field label="Libellé de la question *">
-            <input value={label} onChange={e => setLabel(e.target.value)}
-              placeholder="Ex: Présence d'une borne d'appel" style={inputStyle} autoFocus />
-          </Field>
-
-          <Field label="Aide (optionnel)">
-            <textarea value={help} onChange={e => setHelp(e.target.value)}
-              placeholder="Texte court qui apparaît sous le libellé"
-              rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
-          </Field>
-
-          <Field label={`Type de question ${canEditType ? '*' : '(non modifiable)'}`}>
-            <select value={critType} disabled={!canEditType}
-              onChange={e => setCritType(e.target.value)} style={inputStyle}>
-              {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            {!canEditType && <p style={hintStyle}>
-              Pour changer de type, supprime cette question et crée-en une nouvelle.
-            </p>}
-          </Field>
-
-          {tt === 'rating' && (
-            <Field label="Labels des 4 niveaux (un par ligne, du plus bas au plus haut)">
-              <textarea value={ratingLabels} onChange={e => setRatingLabels(e.target.value)}
-                rows={4} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 13 }} />
-            </Field>
-          )}
-
-          {(tt === 'choice' || tt === 'multi') && (
-            <Field label="Options (une par ligne) *">
-              <textarea value={choicesText} onChange={e => setChoicesText(e.target.value)}
-                rows={5} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 13 }}
-                placeholder={"Option 1\nOption 2\nOption 3"} />
-            </Field>
-          )}
-        </>}
-
-        {/* Section */}
-        {isSection && <>
-          {isSystem && type === 'edit-section' && <div style={{
-            background: 'var(--amber-tint)', padding: '8px 12px', fontSize: 12,
-            color: 'var(--amber)', marginBottom: 12, borderRadius: 4
-          }}>
-            ⚠ Onglet système — tu peux modifier son titre/sous-titre mais pas le supprimer.
-          </div>}
-          <Field label="Titre complet *">
-            <input value={sTitle} onChange={e => setSTitle(e.target.value)}
-              placeholder="Ex: Information voyageurs" style={inputStyle} autoFocus />
-          </Field>
-          <Field label="Nom court (affiché dans la barre du bas)">
-            <input value={sShort} onChange={e => setSShort(e.target.value)}
-              placeholder="Ex: Info" maxLength={12} style={inputStyle} />
-          </Field>
-          <Field label="Sous-titre (optionnel)">
-            <input value={sSubtitle} onChange={e => setSSubtitle(e.target.value)}
-              placeholder="Description courte de l'onglet" style={inputStyle} />
-          </Field>
-        </>}
-
-        <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
-          <button onClick={onClose} style={{
-            flex: 1, padding: '12px 16px', border: '1px solid var(--border)',
-            background: 'var(--paper-light)', fontWeight: 500, borderRadius: 4
-          }}>Annuler</button>
-          <button onClick={submit} style={{
-            flex: 2, padding: '12px 16px', background: 'var(--red)',
-            color: 'white', fontWeight: 600, borderRadius: 4
-          }}>{type.startsWith('add') ? 'Créer' : 'Enregistrer'}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================
    HOME SCREEN
    ============================================================ */
-function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, syncing, editMode, onToggleEdit, onRestoreGrille, readOnly, isOnline, pendingCount, retryingPhotos, gridRev }) {
+function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, syncing, readOnly, isOnline, pendingCount, retryingPhotos, gridRev }) {
   const visites = Object.values(all).sort((a, b) => b.updated - a.updated);
   const totalGares = GARES.length;
   const visited = visites.length;
@@ -4955,8 +4622,7 @@ function PickerScreen({ all, onPick, onBack }) {
    ============================================================ */
 
 function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
-                      editMode, onToggleEdit, onEditCrit, onAddCrit, onDeleteCrit,
-                      onEditSection, onAddSection, onDeleteSection, readOnly, gridRev }) {
+                      readOnly, gridRev }) {
   const sections = useMemo(
     () => SECTIONS.filter((s) => !s.skipIf || !s.skipIf(gare, visite.data)),
     // gridRev force le recalcul quand la grille est modifiée
@@ -5093,15 +4759,6 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
           ← <span className="kicker" style={{ fontSize: 10 }}>Carnet</span>
         </button>
         <div style={{ display: 'flex', gap: 6 }}>
-          {onToggleEdit &&
-          <button onClick={onToggleEdit} title="Mode édition de la grille" style={{
-            color: editMode ? 'var(--paper-light)' : 'var(--paper)',
-            background: editMode ? 'var(--red)' : 'transparent',
-            fontSize: 11, padding: '5px 10px',
-            border: `1px solid ${editMode ? 'var(--red)' : 'rgba(245,242,235,0.2)'}`,
-            borderRadius: 2, fontWeight: 600
-          }}>{editMode ? '✓ Édition' : '🛠'}</button>
-          }
           <button onClick={onOverview} style={{ color: 'var(--paper)', fontSize: 11, padding: '5px 10px',
             border: '1px solid rgba(245,242,235,0.2)', borderRadius: 2,
             display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -5146,9 +4803,8 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
           Tout ce qui suit scroll, sauf la BARRE TITRE qui est sticky top:0 */}
       <div id="panel-scroll" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
       style={{ flex: 1, overflowY: 'auto',
-        background: editMode ? '#FFF6F0' : (activeSection.bureau ? '#F5F7F9' : 'var(--white)'),
+        background: activeSection.bureau ? '#F5F7F9' : 'var(--white)',
         minHeight: 0,
-        boxShadow: editMode ? 'inset 0 0 0 3px var(--red)' : 'none',
         transition: 'background 0.2s, box-shadow 0.2s'
       }}>
 
@@ -5217,15 +4873,6 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
                 }
               </button>);
           })}
-          {editMode &&
-          <button onClick={onAddSection} style={{
-            flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4,
-            padding: '6px 11px', borderRadius: 99,
-            background: 'var(--red-tint)', color: 'var(--red)',
-            border: '1px dashed var(--red)',
-            fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap'
-          }}>+ Onglet</button>
-          }
         </div>
 
         {/* BARRE TITRE ONGLET — STICKY top:0, reste fixe quand on scroll dans la section */}
@@ -5295,58 +4942,6 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
               stationnement. Renseigne ici les caractéristiques du second.
             </div>
           }
-
-          {/* BANDEAU MODE ÉDITION */}
-          {editMode &&
-          <div style={{
-            background: 'var(--red)',
-            color: 'white',
-            padding: '8px 12px', marginBottom: 14,
-            fontSize: 12, fontWeight: 600,
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap',
-            position: 'sticky', top: 0, zIndex: 5,
-            margin: '-18px -18px 14px',
-            padding: '10px 18px',
-            boxShadow: '0 2px 8px rgba(200,16,46,0.25)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ background: 'white', color: 'var(--red)', padding: '2px 8px',
-                fontSize: 10, fontWeight: 800, letterSpacing: '0.12em', borderRadius: 2 }}>● MODE ÉDITION</span>
-              <span style={{ opacity: 0.95, fontSize: 11.5 }}>tes modifs sont visibles par tous</span>
-            </div>
-            <button onClick={onToggleEdit} style={{
-              fontSize: 11, color: 'var(--red)', fontWeight: 700,
-              background: 'white', padding: '4px 10px', borderRadius: 2
-            }}>✓ Terminer</button>
-          </div>
-          }
-
-          {/* En mode édition : panneau d'actions pour l'onglet (modifier / supprimer / dernière modif) */}
-          {editMode &&
-          <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap',
-            background: 'var(--paper-light)', border: '1px dashed var(--border)', padding: '8px 10px', borderRadius: 2 }}>
-            <button onClick={() => onEditSection(activeSection.id)} style={{
-              fontSize: 11, padding: '4px 10px', background: 'var(--white)',
-              border: '1px solid var(--border)', borderRadius: 2, color: 'var(--ink)'
-            }}>✏ Modifier l'onglet</button>
-            {!activeSection.system &&
-            <button onClick={() => onDeleteSection(activeSection.id)} style={{
-              fontSize: 11, padding: '4px 10px', background: 'var(--white)',
-              border: '1px solid var(--red)', borderRadius: 2, color: 'var(--red)'
-            }}>✕ Supprimer l'onglet</button>
-            }
-            {activeSection.system &&
-            <span style={{ fontSize: 10, color: 'var(--taupe)', padding: '4px 8px',
-              background: 'var(--paper-deep)', borderRadius: 2,
-              display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              🔒 onglet système
-            </span>}
-            {activeSection.updatedBy && <span style={{
-              fontSize: 10, color: 'var(--taupe)', padding: '4px 8px',
-              background: 'var(--paper-deep)', borderRadius: 2
-            }}>dernière modif · {activeSection.updatedBy}{activeSection.updatedAt ? ` · ${fmtAgo(activeSection.updatedAt)}` : ''}</span>}
-          </div>
-          }
           {/* trait séparateur retiré : le header sticky a sa propre borderBottom */}
 
           {/* Bouton next-section compact en haut — pour ne pas avoir à scroller */}
@@ -5368,43 +4963,7 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
           {/* CRITERIA */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {activeSection.criteria.map((c) =>
-            <div key={c.id} style={editMode && c.type !== 'subhead' ? {
-              border: '1px dashed var(--border)', padding: '6px 6px 4px',
-              borderRadius: 4, background: 'rgba(255,255,255,0.4)'
-            } : null}>
-              {editMode && c.type !== 'subhead' &&
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <div style={{ fontSize: 10, color: 'var(--taupe)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  {c.createdBy && <span style={{
-                    background: 'var(--paper-deep)', padding: '2px 6px', borderRadius: 99,
-                    fontWeight: 500, color: 'var(--ink-soft)'
-                  }}>+ {c.createdBy}</span>}
-                  {c.updatedBy && c.updatedBy !== c.createdBy && <span style={{
-                    background: 'var(--amber-tint)', padding: '2px 6px', borderRadius: 99,
-                    fontWeight: 500, color: 'var(--amber)'
-                  }}>✏ {c.updatedBy}</span>}
-                  {c.updatedAt && <span className="tabular">{fmtAgo(c.updatedAt)}</span>}
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={() => onEditCrit(activeSection.id, c.id)} style={{
-                    fontSize: 10.5, padding: '3px 8px', background: 'var(--white)',
-                    border: '1px solid var(--border)', borderRadius: 2, color: 'var(--ink-soft)'
-                  }}>✏ Modifier</button>
-                  <button onClick={() => onDeleteCrit(activeSection.id, c.id)} style={{
-                    fontSize: 10.5, padding: '3px 8px', background: 'var(--white)',
-                    border: '1px solid var(--red-soft)', borderRadius: 2, color: 'var(--red)'
-                  }}>✕ Supprimer</button>
-                </div>
-              </div>
-              }
-              {editMode && c.type === 'subhead' &&
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 0 }}>
-                <button onClick={() => onDeleteCrit(activeSection.id, c.id)} style={{
-                  fontSize: 10, padding: '2px 7px', background: 'transparent',
-                  border: '1px solid var(--border)', borderRadius: 2, color: 'var(--taupe)'
-                }}>✕</button>
-              </div>
-              }
+            <div key={c.id}>
               <Criterion c={c} raw={visite.data[c.id]}
                 gareName={gare.nom}
                 locked={activeSection.fluxLocked || readOnly}
@@ -5418,17 +4977,6 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
                 onToast={onToast} />
             </div>
             )}
-
-            {/* Bouton ajouter une question (mode édition) */}
-            {editMode &&
-            <button onClick={() => onAddCrit(activeSection.id)} style={{
-              width: '100%', padding: '14px 12px', marginTop: 6,
-              border: '2px dashed var(--red)', borderRadius: 4,
-              background: 'var(--red-tint)', color: 'var(--red)',
-              fontSize: 13, fontWeight: 600, letterSpacing: '0.02em',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
-            }}>+ Ajouter une question à "{activeSection.short}"</button>
-            }
           </div>
 
           {/* FOOTER NAV inside panel */}
@@ -6698,9 +6246,6 @@ function App() {
     return () => { cancelled = true; };
     // eslint-disable-next-line
   }, []); // Au mount seulement
-
-  // Mode édition de la grille (toggle global)
-  const [editMode, setEditMode] = useState(false);
   // Compteur de révision : incrémenté à chaque modification de SECTIONS
   // → force le re-render des composants qui dépendent de la grille
   const [gridRev, setGridRev] = useState(0);
@@ -6800,63 +6345,6 @@ function App() {
     }
     // eslint-disable-next-line
   }, []);
-
-  // Wrapper qui mute SECTIONS + push Supabase + force re-render
-  const applyGridChange = useCallback((mutateFn, successMsg) => {
-    if (readOnly) { alert('Mode consultation — édition de grille désactivée'); return false; }
-    const ok = mutateFn();
-    if (ok === false) return false;
-    bumpGrid();
-    pushGrilleToSupa(auteur);
-    if (successMsg) setToast({ msg: successMsg, type: 'success' });
-    setTimeout(() => setToast(null), 1800);
-    return ok;
-  }, [auteur, bumpGrid, readOnly]);
-
-  // State de la modale d'édition de la grille
-  // editModal = null | { type, sectionId?, critId?, current? }
-  // types: 'edit-crit' | 'add-crit' | 'add-section' | 'edit-section'
-  const [editModal, setEditModal] = useState(null);
-
-  const openGridEdit = useCallback((type, sectionId, critId) => {
-    const sec = sectionId ? SECTIONS.find(s => s.id === sectionId) : null;
-    const crit = critId && sec ? (sec.criteria || []).find(c => c.id === critId) : null;
-    setEditModal({ type, sectionId, critId, current: crit || sec || null });
-  }, [gridRev]); // gridRev pour avoir la dernière version
-
-  const closeGridEdit = useCallback(() => setEditModal(null), []);
-
-  // Confirmation de suppression d'un critère
-  const confirmDeleteCrit = useCallback((sectionId, critId) => {
-    const sec = SECTIONS.find(s => s.id === sectionId);
-    const crit = (sec?.criteria || []).find(c => c.id === critId);
-    if (!crit) return;
-    const msg = `Supprimer la question "${crit.label}" ?\n\nLes réponses déjà saisies sur les visites resteront stockées en base et seront récupérables si on remet la question avec le même identifiant.`;
-    if (confirm(msg)) {
-      applyGridChange(() => gridDeleteCriterion(sectionId, critId), 'Question supprimée');
-    }
-  }, [applyGridChange, gridRev]);
-
-  // Confirmation de suppression d'un onglet
-  const confirmDeleteSection = useCallback((sectionId) => {
-    const sec = SECTIONS.find(s => s.id === sectionId);
-    if (!sec) return;
-    if (sec.system) {
-      alert(`L'onglet "${sec.title}" est un onglet système et ne peut pas être supprimé. Vous pouvez en revanche modifier ou supprimer ses questions.`);
-      return;
-    }
-    const msg = `Supprimer l'onglet "${sec.title}" et toutes ses ${(sec.criteria||[]).length} question(s) ?\n\nLes réponses déjà saisies resteront stockées en base.`;
-    if (confirm(msg)) {
-      applyGridChange(() => gridDeleteSection(sectionId), 'Onglet supprimé');
-    }
-  }, [applyGridChange, gridRev]);
-
-  // Restaurer la grille par défaut
-  const restoreDefaultGrille = useCallback(() => {
-    if (!confirm("⚠ Restaurer la grille par défaut ?\n\nToutes les modifications apportées (questions ajoutées, modifiées, supprimées, nouveaux onglets) seront perdues.\n\nLes réponses déjà saisies sur les visites ne sont PAS affectées.")) return;
-    applyGridChange(() => { gridRestoreDefault(); return true; }, 'Grille restaurée');
-  }, [applyGridChange]);
-
 
   const showToast = (msg, type = '') => {
     setToast({ msg, type });
@@ -8429,15 +7917,11 @@ function App() {
         onOpen={(g) => setRoute({ name: 'form', gareName: g })}
         onChangeAuteur={changeAuteur}
         onExportAll={() => setRoute({ name: 'export' })}
-        editMode={editMode && !readOnly}
-        onToggleEdit={readOnly ? null : (() => setEditMode(e => !e))}
-        onRestoreGrille={readOnly ? null : restoreDefaultGrille}
         readOnly={readOnly}
         isOnline={isOnline}
         pendingCount={pendingCount}
         retryingPhotos={retryingPhotos}
         gridRev={gridRev} />
-      {!readOnly && <GridEditModal modal={editModal} onClose={closeGridEdit} apply={applyGridChange} gridRev={gridRev} auteur={auteur} />}
       <Toast toast={toast} />
       <PDFProgressOverlay status={pdfStatus} />
     </>;
@@ -8485,17 +7969,8 @@ function App() {
         onBack={() => setRoute({ name: 'home' })}
         onOverview={() => setRoute({ name: 'overview', gareName: g.nom })}
         onToast={showToast}
-        editMode={editMode && !readOnly}
-        onToggleEdit={readOnly ? null : (() => setEditMode(e => !e))}
-        onEditCrit={(sid, cid) => openGridEdit('edit-crit', sid, cid)}
-        onAddCrit={(sid) => openGridEdit('add-crit', sid)}
-        onDeleteCrit={confirmDeleteCrit}
-        onEditSection={(sid) => openGridEdit('edit-section', sid)}
-        onAddSection={() => openGridEdit('add-section')}
-        onDeleteSection={confirmDeleteSection}
         readOnly={readOnly}
         gridRev={gridRev} />
-      {!readOnly && <GridEditModal modal={editModal} onClose={closeGridEdit} apply={applyGridChange} gridRev={gridRev} auteur={auteur} />}
       <Toast toast={toast} />
       <PDFProgressOverlay status={pdfStatus} />
     </>;
