@@ -2926,6 +2926,7 @@ let SECTIONS = [
     'Stationnement urbain à proximité',
     'Parking gare dédié',
     'Parking étendu (P+R / parc relais)',
+    'Stationnement informel',
     'Pas de parking gare'
   ]},
   { id: 'carac_velos_nb_stat', label: "Nombre de stationnements vélos distincts", type: 'count' },
@@ -2957,13 +2958,20 @@ let SECTIONS = [
   },
   criteria: [
   { id: 'parking_nb_total', label: "Nombre total de places", type: 'count' },
-  { id: 'parking_nb_pmr', label: "Places PMR", help: "Recommandé ≥ 2% du parc total", type: 'count' },
+  { id: 'parking_nb_pmr', label: "Places PSH", help: "Recommandé ≥ 2% du parc total", type: 'count' },
   { id: 'parking_nb_depose', label: "Places dépose-minute / Kiss&Ride", type: 'count' },
   { id: 'parking_nb_taxis', label: "Places taxis", type: 'count' },
   { id: 'parking_nb_electriques', label: "Places électriques", type: 'count' },
   { id: 'parking_nb_recharge_ve', label: "Bornes de recharge VE", type: 'count' },
   { id: 'parking_covoit', label: "Aire de covoiturage identifiée", type: 'presence' },
   { id: 'parking_controle', label: "Contrôle d'accès (barrière, badge)", type: 'presence' },
+  { id: 'parking_eclairage', label: "Éclairage du parking", type: 'presence' },
+  { id: 'parking_sol_permeable', label: "Type de sol", type: 'choice', choices: [
+    'Perméable (gravier, terre, dallage drainant…)',
+    'Imperméable (enrobé, béton…)'
+  ]},
+  { id: 'parking_sol_etat', label: "État du sol", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] },
+  { id: 'parking_tracage', label: "Traçage au sol (places matérialisées)", type: 'presence' },
   { id: 'parking_etat', label: "État général du parking", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] }
 ]},
 
@@ -2982,11 +2990,24 @@ let SECTIONS = [
   { id: 'parking2_type_label', label: "Quel type pour ce 2e parking ?", type: 'choice', choices: [
     'Stationnement urbain à proximité',
     'Parking gare dédié',
-    'Parking étendu (P+R / parc relais)'
+    'Parking étendu (P+R / parc relais)',
+    'Stationnement informel'
   ]},
   { id: 'parking2_nb_total', label: "Nombre total de places", type: 'count' },
-  { id: 'parking2_nb_pmr', label: "Places PMR", type: 'count' },
+  { id: 'parking2_nb_pmr', label: "Places PSH", help: "Recommandé ≥ 2% du parc total", type: 'count' },
+  { id: 'parking2_nb_depose', label: "Places dépose-minute / Kiss&Ride", type: 'count' },
+  { id: 'parking2_nb_taxis', label: "Places taxis", type: 'count' },
   { id: 'parking2_nb_electriques', label: "Places électriques", type: 'count' },
+  { id: 'parking2_nb_recharge_ve', label: "Bornes de recharge VE", type: 'count' },
+  { id: 'parking2_covoit', label: "Aire de covoiturage identifiée", type: 'presence' },
+  { id: 'parking2_controle', label: "Contrôle d'accès (barrière, badge)", type: 'presence' },
+  { id: 'parking2_eclairage', label: "Éclairage du parking", type: 'presence' },
+  { id: 'parking2_sol_permeable', label: "Type de sol", type: 'choice', choices: [
+    'Perméable (gravier, terre, dallage drainant…)',
+    'Imperméable (enrobé, béton…)'
+  ]},
+  { id: 'parking2_sol_etat', label: "État du sol", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] },
+  { id: 'parking2_tracage', label: "Traçage au sol (places matérialisées)", type: 'presence' },
   { id: 'parking2_etat', label: "État général", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] }
 ]},
 
@@ -3030,9 +3051,9 @@ let SECTIONS = [
   criteria: [
   // ── Sous-bloc Stationnement
   { _subhead: 'Stationnement', id: '_velos_h_stat', label: 'Stationnement vélo', type: 'subhead' },
-  { id: 'velos_arceaux_couv', label: "Arceaux vélos COUVERTS", type: 'count' },
-  { id: 'velos_arceaux_decouv', label: "Arceaux vélos NON couverts", type: 'count' },
-  { id: 'velos_arceaux_nonsecur', label: "Arceaux vélos NON sécurisés", help: "Stationnement libre sans dispositif anti-vol type abri fermé", type: 'count' },
+  { id: 'velos_arceaux_couv', label: "Places vélos COUVERTES", type: 'count' },
+  { id: 'velos_arceaux_decouv', label: "Places vélos NON couvertes", type: 'count' },
+  { id: 'velos_arceaux_nonsecur', label: "Places vélos NON sécurisées", help: "Stationnement libre sans dispositif anti-vol type abri fermé", type: 'count' },
   { id: 'velos_lls', label: "Vélos / trottinettes en libre-service", type: 'presence' },
   { id: 'velos_services', label: "Services vélo (réparation, pompe, gonflage)", type: 'presence' },
   { id: 'velos_recharge_vae', label: "Bornes de recharge VAE", type: 'count' },
@@ -3046,18 +3067,15 @@ let SECTIONS = [
   { id: 'velos_confort_circul', label: "Confort de circulation global", help: "Ressenti synthèse", type: 'rating', scale: 4, labels: ['Absent', 'Insuffisant', 'Correct', 'Qualitatif'] },
   { id: 'velos_obstacles_absents', label: "Absence d'obstacles", help: "Poteaux, mobilier, voitures stationnées, etc.", type: 'presence' },
 
-  // ── Sous-bloc Accessibilité gare (depuis l'aménagement cyclable)
+  // ── Sous-bloc Accessibilité gare (depuis l'aménagement cyclable) — 3 questions seulement
   { _subhead: 'Accessibilité gare', id: '_velos_h_acc', label: 'Accessibilité gare (depuis l\'aménagement vélo)', type: 'subhead' },
-  { id: 'velos_acc_connexion', label: "Connexion directe aux accès gare", type: 'presence' },
-  { id: 'velos_acc_quais_hall', label: "Facilité d'accès aux quais / hall", type: 'rating', scale: 4, labels: ['Absent', 'Insuffisant', 'Correct', 'Qualitatif'] },
-  { id: 'velos_acc_continuite_entrees', label: "Continuité jusqu'aux entrées gare", type: 'rating', scale: 4, labels: ['Absente', 'Insuffisante', 'Correcte', 'Qualitative'] },
+  { id: 'velos_acc_continuite_entrees', label: "Continuité jusqu'aux entrées gare / quais", help: "Transport de vélo depuis piste puis accès BV ou quais", type: 'rating', scale: 4, labels: ['Absente', 'Insuffisante', 'Correcte', 'Qualitative'] },
   { id: 'velos_acc_pentes', label: "Gestion des pentes", help: "Rampes douces vs marches/dénivelés brutaux", type: 'rating', scale: 4, labels: ['Absente', 'Insuffisante', 'Correcte', 'Qualitative'] },
-  { id: 'velos_acc_pmr_velo', label: "Accessibilité PMR + vélo combinée", help: "Un cycliste PMR (handivélo, tricycle…) peut-il accéder ?", type: 'presence' },
   { id: 'velos_acc_quais', label: "Possibilité d'amener son vélo aux quais", type: 'presence' },
 
-  // ── État général en conclusion
-  { _subhead: 'Conclusion', id: '_velos_h_concl', label: 'Conclusion', type: 'subhead' },
-  { id: 'velos_etat', label: "État général des aménagements vélo", type: 'rating', scale: 4, labels: ['Absent', 'Insuffisant', 'Correct', 'Qualitatif'] }
+  // ── Sous-bloc Autres stationnements
+  { _subhead: 'Autres stationnements', id: '_velos_h_autres', label: 'Autres stationnements', type: 'subhead' },
+  { id: 'velos_motos', label: "Stationnement 2 roues motorisés", help: "Moto, scooter", type: 'count' }
 ]},
 
 /* ============================================================
@@ -3066,8 +3084,13 @@ let SECTIONS = [
 { system: true, id: 'tc', n: 5, title: 'Arrêts TC à proximité', short: 'TC', icon: '▭', subtitle: 'Confirmation visuelle des arrêts',
   skipIf: (g, d) => getVal(d?.desk_tc_350) === 'no',
   criteria: [
-  { id: 'tc_info_dyn', label: "Écrans d'information dynamique TC", type: 'count' },
-  { id: 'tc_signal', label: "Signalétique intermodale extérieure", type: 'presence', help: "Panneaux indiquant les arrêts TC depuis la gare" },
+  { id: 'tc_arret_dispo', label: "Arrêt TC à côté de la gare", help: "Y a-t-il un arrêt TC visible à proximité immédiate ?", type: 'yesno' },
+  { id: 'tc_types', label: "Type(s) de TC desservant la gare", help: "Plusieurs choix possibles", type: 'multi', choices: [
+    'Bus urbain',
+    'Car interurbain',
+    'Autre (tram, navette, etc.)'
+  ]},
+  { id: 'tc_info_dyn', label: "Écrans d'information dynamique TC", help: "au niveau de la station TC", type: 'count' },
   { id: 'tc_billettique', label: "Automates ou valideurs TC à proximité", type: 'pne' },
   { id: 'tc_qualite_attente', label: "Qualité des espaces d'attente TC", help: "Abris, assises, éclairage", type: 'rating', scale: 4, labels: ['Absent', 'Mauvaise', 'Moyenne', 'Bonne'] }
 ]},
@@ -3082,14 +3105,18 @@ let SECTIONS = [
   },
   criteria: [
   { id: 'bv_nb_acces', label: "Nombre d'accès au BV", help: "0 si pas de BV — déplacé ici suite remarque Maram", type: 'count' },
-  { id: 'bv_poubelles', label: "Poubelles", type: 'pne' },
+  { id: 'bv_poubelles', label: "Poubelles", help: "Type de flux présent en gare", type: 'choice', choices: ['Absent', 'Simple flux', 'Double flux', 'Triple flux'] },
   { id: 'bv_wc', label: "WC publics", type: 'presence' },
   { id: 'bv_fontaine', label: "Fontaine à eau", type: 'presence' },
   { id: 'bv_wifi', label: "Wifi gare disponible", type: 'presence' },
   { id: 'bv_guichet', label: "Guichet de vente", help: "Renseigner le nombre de postes", type: 'pn' },
   { id: 'bv_automate_billet', label: "Automates de vente de billets", type: 'count' },
-  { id: 'bv_distrib_selecta', label: "Distributeurs (Selecta…)", type: 'pn' },
-  { id: 'bv_photomaton', label: "Photomaton", type: 'pn' },
+  { id: 'bv_commerces_auto', label: "Commerces automatisés", help: "Distributeurs, photomaton, snacks, etc. — plusieurs choix possibles", type: 'multi', choices: [
+    'Distributeur boissons / snacks (Selecta…)',
+    'Photomaton',
+    'Distributeur automatique de billets bancaires (DAB)',
+    'Autre'
+  ]},
   { id: 'bv_commerces_humanises', label: "Commerces humanisés", type: 'pn' },
   { id: 'bv_accueil_psh', label: "Point d'accueil PSH", help: "Personnes en Situation de Handicap", type: 'presence' },
   { id: 'bv_ecran_iv_trains', label: "Écrans IV trains", type: 'count' },
@@ -3102,7 +3129,10 @@ let SECTIONS = [
   { id: 'bv_plans_tc', label: "Plans réseau TC", type: 'presence' },
   { id: 'bv_plans_trains', label: "Plans réseau trains", type: 'presence' },
   { id: 'bv_vigipirate', label: "Info Vigipirate", type: 'presence' },
-  { id: 'bv_emplois', label: "Nombre d'employés gare visibles", type: 'count' },
+  { id: 'bv_mode_emploi', label: "Mode d'emploi de la gare", help: "Panneau / signalétique expliquant le fonctionnement général de la gare", type: 'presence' },
+  { id: 'bv_horaires_services', label: "Informations sur horaires d'ouverture / services", type: 'presence' },
+  { id: 'bv_defibrillateur', label: "Défibrillateur", type: 'presence' },
+  { id: 'bv_consignes_secu', label: "Consignes de sécurité", help: "Affichage évacuation, conduite à tenir en cas d'incident", type: 'presence' },
   { id: 'bv_signal_secu_ferro', label: "Signalétique sécurité ferroviaire", type: 'presence' },
   { id: 'bv_signal_services', label: "Signalétique services gare", type: 'presence' },
   { id: 'bv_etat', label: "État général du BV", help: "Évaluation synthétique en conclusion", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] }
@@ -3123,7 +3153,7 @@ let SECTIONS = [
   { id: 'franch_escaliers', label: "Volées d'escaliers", help: "Nombre de volées au total (montée + descente comptées séparément si non symétriques)", type: 'count' },
   { id: 'franch_rampes', label: "Rampes / pentes douces", type: 'presence' },
   { id: 'franch_eclairage', label: "Éclairage du franchissement", help: "⚠ Difficile à juger en journée — relever simplement la présence", type: 'presence' },
-  { id: 'franch_poubelles', label: "Poubelles", type: 'pne' },
+  { id: 'franch_poubelles', label: "Poubelles", help: "Type de flux présent", type: 'choice', choices: ['Absent', 'Simple flux', 'Double flux', 'Triple flux'] },
   { id: 'franch_ecran_iv_trains', label: "Écrans IV trains", type: 'count' },
   { id: 'franch_ecran_iv_tc', label: "Écrans IV TC", type: 'count' },
   { id: 'franch_valideurs', label: "Valideurs (titres TER)", type: 'pn' },
@@ -3137,13 +3167,12 @@ let SECTIONS = [
    9. QUAIS — refonte Maram (le gros morceau)
    ============================================================ */
 { system: true, id: 'quais', n: 8, title: 'Quais', short: 'Quais', icon: '═', subtitle: 'Le terminus du parcours', criteria: [
-  { id: 'quai_type', label: "Type de quai dominant", type: 'choice', choices: ['Quai absent / bande de terre', 'Quai bas', 'Quai haut', 'Mixte (haut et bas)'] },
+  { id: 'quai_type', label: "Hauteur de quai dominant", type: 'choice', choices: ['Quai absent / bande de terre', 'Quai bas', 'Quai haut', 'Mixte (haut et bas)'] },
   { id: 'quai_etat', label: "État général des quais", type: 'rating', scale: 4, labels: ['Absent', 'Mauvais', 'Moyen', 'Bon'] },
   { id: 'quai_longueur_ok', label: "Longueur adaptée au matériel roulant", help: "À évaluer uniquement si train présent au moment de la visite. Sinon laisser vide.", type: 'presence' },
-  { id: 'quai_candelabres', label: "Candélabres (mâts d'éclairage)", type: 'count' },
+  { id: 'quai_candelabres', label: "Éclairage présent sur toute la longueur des quais", help: "Candélabres / mâts d'éclairage couvrant l'intégralité du quai", type: 'presence' },
   { id: 'quai_eclairage', label: "Éclairage des quais", help: "⚠ Difficile à juger en journée — relever simplement la présence", type: 'presence' },
-  { id: 'quai_poubelles', label: "Poubelles", type: 'pne' },
-  { id: 'quai_poubelles_tri', label: "Tri sélectif (tri-flux)", type: 'presence' },
+  { id: 'quai_poubelles', label: "Poubelles", help: "Type de flux présent sur les quais", type: 'choice', choices: ['Absent', 'Simple flux', 'Double flux', 'Triple flux'] },
   { id: 'quai_abris', label: "Abris quais", type: 'pne' },
   { id: 'quai_assises', label: "Assises / bancs", type: 'pne' },
   { id: 'quai_ecran_iv_trains', label: "Écrans IV trains", type: 'count' },
@@ -3157,7 +3186,6 @@ let SECTIONS = [
   { id: 'quai_plans_tc', label: "Plans réseau TC", type: 'presence' },
   { id: 'quai_plans_trains', label: "Plans réseau trains", type: 'presence' },
   { id: 'quai_vigipirate', label: "Info Vigipirate", type: 'presence' },
-  { id: 'quai_emplois', label: "Nombre d'employés gare visibles", type: 'count' },
   { id: 'quai_signal_secu_ferro', label: "Signalétique sécurité ferroviaire", type: 'presence' },
   { id: 'quai_signal_services', label: "Signalétique services gare", type: 'presence' },
   { id: 'quai_totem', label: "Totem gare", type: 'presence' },
@@ -3166,31 +3194,34 @@ let SECTIONS = [
 ]},
 
 /* ============================================================
-   10. ACCESSIBILITÉ PMR — nouvelle section (4 sous-blocs)
+   10. ACCESSIBILITÉ PSH — nouvelle section (4 sous-blocs)
    ============================================================ */
-{ system: true, id: 'pmr', n: 9, title: 'Accessibilité PMR', short: 'PMR', icon: '♿', subtitle: "Tous handicaps — moteur, visuel, auditif, intellectuel/psychique", criteria: [
+{ system: true, id: 'pmr', n: 9, title: 'Accessibilité PSH', short: 'PSH', icon: '♿', subtitle: "Personnes en Situation de Handicap — moteur, visuel, auditif, intellectuel/psychique", criteria: [
   // ── Classification réglementaire
   { _subhead: 'Classification', id: '_pmr_h_classif', label: 'Classification réglementaire', type: 'subhead' },
   { id: 'carac_bv_sdap', label: "Accessibilité SDAP", help: "Schéma Directeur d'Accessibilité Programmée — en s'appuyant sur l'étude RADAR", type: 'choice', choices: ['SDAP', 'Non SDAP', 'Inconnu'] },
   // ── Sous-bloc Moteur
   { _subhead: 'Handicap moteur', id: '_pmr_h_moteur', label: 'Handicap moteur', type: 'subhead' },
-  { id: 'pmr_m_rampe', label: "Rampe PMR", type: 'presence' },
+  { id: 'pmr_m_rampe', label: "Rampe PSH", type: 'presence' },
   { id: 'pmr_m_chemin_ressauts', label: "Cheminement avec minimum de ressauts", type: 'presence' },
-  { id: 'pmr_m_ufr_guichet', label: "Espace UFR devant le guichet de vente", type: 'presence' },
-  { id: 'pmr_m_ufr_automate', label: "Espace UFR devant les automates", type: 'presence' },
-  { id: 'pmr_m_ufr_valideur', label: "Espace UFR devant les valideurs", type: 'presence' },
+  { id: 'pmr_m_ufr_guichet', label: "Espace UFR devant le guichet de vente", help: "1,5 m en face du guichet", type: 'presence' },
+  { id: 'pmr_m_ufr_automate', label: "Espace UFR devant les automates", help: "1,5 m en face des automates", type: 'presence' },
+  { id: 'pmr_m_ufr_valideur', label: "Espace UFR devant les valideurs", help: "1,5 m en face des valideurs", type: 'presence' },
+  { id: 'pmr_m_wc_pmr', label: "WC accessibles PSH", type: 'presence' },
   { id: 'pmr_m_ascenseurs', label: "Ascenseurs / monte-charges", type: 'pn' },
-  { id: 'pmr_m_hauteur_accueil', label: "Hauteur équipement accueil public adaptée PMR", type: 'presence' },
-  { id: 'pmr_m_ufr_assise_bv', label: "Emplacements UFR — assises BV", type: 'count' },
-  { id: 'pmr_m_ufr_assise_quais', label: "Emplacements UFR — assises quais", type: 'count' },
-  { id: 'pmr_m_ufr_abri_quais', label: "Emplacements UFR — abris quais", type: 'count' },
-  { id: 'pmr_m_locaux_non_acc', label: "Locaux/espaces NON accessibles PMR", type: 'presence', help: "Préciser lesquels en note" },
+  { id: 'pmr_m_hauteur_accueil', label: "Hauteur équipement accueil public adaptée PSH", type: 'presence' },
+  { id: 'pmr_m_ufr_assise_bv', label: "Emplacement UFR — assises BV", type: 'presence' },
+  { id: 'pmr_m_ufr_abri_quais', label: "Emplacement UFR — abri quai", help: "Place pour attendre en fauteuil roulant", type: 'presence' },
+  { id: 'pmr_m_locaux_non_acc', label: "Locaux/espaces NON accessibles PSH", type: 'presence', help: "Préciser lesquels en note" },
 
   // ── Sous-bloc Visuel
   { _subhead: 'Handicap visuel', id: '_pmr_h_visuel', label: 'Handicap visuel', type: 'subhead' },
-  { id: 'pmr_v_braille', label: "Informations braille / caractères en relief contrasté", type: 'presence' },
-  { id: 'pmr_v_detection_obstacle', label: "Dispositif aide à la détection d'obstacle", help: "Avant marche, nez de marche, quais…", type: 'presence' },
-  { id: 'pmr_v_bande_guidage', label: "Bande de guidage tactile", type: 'presence' },
+  { id: 'pmr_v_parcours_sans_obstacle', label: "Parcours sans obstacles", help: "Cheminement complet libre d'obstacles (poteaux, mobilier, marches…)", type: 'choice', choices: ['Non', 'Partiel', 'Oui'] },
+  { id: 'pmr_v_manchons_mc', label: "Manchons sur mains courantes des escaliers", help: "Information braille / repère tactile", type: 'presence' },
+  { id: 'pmr_v_escaliers_double_mc', label: "Escaliers à doubles mains courantes", type: 'presence' },
+  { id: 'pmr_v_nez_marche', label: "Nez de marche contrasté antidérapant", type: 'presence' },
+  { id: 'pmr_v_contremarches', label: "1ère et dernière contremarches contrastées", type: 'presence' },
+  { id: 'pmr_v_bande_guidage', label: "Bande de guidage tactile", help: "Depuis place de stationnement PSH vers BV, quais, services", type: 'choice', choices: ['Absent', 'Partiel', 'Complet'] },
   { id: 'pmr_v_bev_escaliers', label: "BEV — chaque volée d'escalier", help: "BEV = Bande d'Éveil de Vigilance", type: 'presence' },
   { id: 'pmr_v_bev_quais', label: "BEV — le long des quais", type: 'presence' },
   { id: 'pmr_v_bev_traversee', label: "BEV — traversées piétonnes", type: 'presence' },
@@ -3200,12 +3231,12 @@ let SECTIONS = [
 
   // ── Sous-bloc Auditif
   { _subhead: 'Handicap auditif', id: '_pmr_h_auditif', label: 'Handicap auditif', type: 'subhead' },
-  { id: 'pmr_a_boucle_induction', label: "Boucle à induction magnétique", type: 'presence' },
-  { id: 'pmr_a_picto', label: "Pictogramme handicap auditif", type: 'presence' },
+  { id: 'pmr_a_boucle_induction', label: "Boucle à induction magnétique", help: "Présence du dispositif (guichet, ascenseurs…)", type: 'presence' },
+  { id: 'pmr_a_picto', label: "Picto boucle à induction", help: "Pictogramme signalant la boucle là où elle est présente (guichet, ascenseurs…)", type: 'presence' },
 
   // ── Sous-bloc Intellectuel / psychique
   { _subhead: 'Intellectuel / psychique', id: '_pmr_h_int', label: 'Intellectuel / psychique', type: 'subhead' },
-  { id: 'pmr_i_picto', label: "Pictogramme handicap intellectuel/psychique", type: 'presence' }
+  { id: 'pmr_i_picto', label: "Signalétique adaptée handicap intellectuel et psychique", help: "Information concise facile à lire et à comprendre, max 5 pictos par panneau, signalétique comportant toujours des pictos", type: 'presence' }
 ]},
 
 /* ============================================================
@@ -3342,7 +3373,7 @@ async function restoreBlobUrls(all) {
    Au lieu de pousser toute la visite à chaque modif (et écraser ce
    qu'un autre utilisateur vient de saisir sur un autre onglet),
    on push UN row par critère modifié dans la table `responses`.
-   Comme ça Tony peut taper Quais et Maram peut taper PMR de la
+   Comme ça Tony peut taper Quais et Maram peut taper PSH de la
    même gare sans collision.
    La meta de la visite (auteurs cumulés, date visite, météo) va
    dans la table `visite_meta` séparée.
@@ -5249,7 +5280,7 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
           {activeSection.id === 'pmr' &&
           <div style={{ background: 'var(--paper)', borderLeft: '3px solid var(--ink)', padding: '10px 12px',
             fontSize: 12, marginBottom: 16, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
-              <strong>Accessibilité PMR (en cours)</strong> — relevé des dispositifs pour
+              <strong>Accessibilité PSH (en cours)</strong> — relevé des dispositifs pour
               tous les types de handicap : moteur, visuel, auditif, intellectuel/psychique.
             </div>
           }
@@ -5456,7 +5487,7 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
    CRITERION
    ============================================================ */
 function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear, onSetNA, onToast, locked, isActive, onActivate }) {
-  // Sub-head : juste un séparateur visuel dans une section (PMR, Synthèse)
+  // Sub-head : juste un séparateur visuel dans une section (PSH, Synthèse)
   if (c.type === 'subhead') {
     return (
       <div style={{
