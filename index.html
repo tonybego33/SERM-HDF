@@ -4901,7 +4901,7 @@ function PickerScreen({ all, onPick, onBack }) {
   const visited = new Set(Object.keys(all));
   const filtered = GARES.filter((g) => g.nom.toLowerCase().includes(q.toLowerCase()));
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--paper-light)' }}>
+    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: 'var(--paper-light)', overflow: 'hidden' }}>
       <div style={{ background: 'var(--ink)', color: 'var(--paper)', padding: '14px 20px',
         display: 'flex', alignItems: 'center', gap: 14 }}>
         <button onClick={onBack} style={{ color: 'var(--paper)', fontSize: 14 }}>← Retour</button>
