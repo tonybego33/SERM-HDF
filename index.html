@@ -2758,103 +2758,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
    ============================================================ */
 const GARES = [
 { nom: "Gare Test 1", uic: 99999991, cat_pro: "1- Pôle régional", cat_sgp: "PEM de centralité", ligne_flux: "TEST", axe: "Test Paris", secteur: "Test", profile: "bv_ouvert_pers", config: "biface", quais: 3 },
-{ nom: "Gare Test 2", uic: 99999992, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte périurbaine", ligne_flux: "TEST", axe: "Test Paris", secteur: "Test", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Lille Flandres", uic: 87286005, cat_pro: "1- Pôle régional", cat_sgp: "PEM de centralité", ligne_flux: "B01", axe: "Hub Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_pers", config: "biface", quais: 4 },
-{ nom: "Annappes", uic: 87286856, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Gare urbaine", ligne_flux: "B02", axe: "Ascq-Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Armentières", uic: 87286146, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM urbain", ligne_flux: "B10", axe: "Hazebrouck-Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_pers", config: "biface", quais: 3 },
-{ nom: "Arras", uic: 87342014, cat_pro: "1- Pôle régional", cat_sgp: "PEM de centralité", ligne_flux: "B08", axe: "Arras", secteur: "Artois Ternois", profile: "bv_ouvert_pers", config: "biface", quais: 4 },
-{ nom: "Ascq", uic: 87286864, cat_pro: "3bis- Pôle Entrée Urbaine", cat_sgp: "Gare urbaine", ligne_flux: "B02", axe: "Ascq-Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Avion", uic: 87342584, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Gare urbaine", ligne_flux: "B08", axe: "Arras-Lens", secteur: "Artois Ternois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Bailleul", uic: 87286179, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM urbain", ligne_flux: "B10", axe: "Hazebrouck-Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_pers", config: "biface", quais: 3 },
-{ nom: "Bailleul-Sir-Berthoult", uic: 87342592, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B08", axe: "Arras-Lens", secteur: "Artois Ternois", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Baisieux", uic: 87286872, cat_pro: "3- Pôle Relais", cat_sgp: "Gare périurbaine", ligne_flux: "B02", axe: "Ascq-Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Bauvin - Provin", uic: 87345280, cat_pro: "3- Pôle Relais", cat_sgp: "Halte périurbaine", ligne_flux: "B07", axe: "Don-Lens", secteur: "Zone Urbaine Lille", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Beuvrages", uic: 87343160, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Gare urbaine", ligne_flux: "B05", axe: "Douai-Valenciennes", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Beuvry lès Béthune", uic: 87342402, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte périurbaine", ligne_flux: "B09", axe: "Béthune-Don", secteur: "Zone Urbaine Lille", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Biache-Saint-Vaast", uic: 87342097, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Gare périurbaine", ligne_flux: "B08", axe: "Arras-Douai", secteur: "Artois Ternois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Billy-Montigny", uic: 87345140, cat_pro: "3- Pôle Relais", cat_sgp: "Gare urbaine", ligne_flux: "B06", axe: "Lens-Libercourt", secteur: "Artois Ternois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Brebières", uic: 87345108, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte périurbaine", ligne_flux: "B08", axe: "Arras-Douai", secteur: "Artois Ternois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Bully - Grenay", uic: 87342105, cat_pro: "2- Pôle de rabattement", cat_sgp: "Gare urbaine", ligne_flux: "B09", axe: "Béthune-Lens", secteur: "Artois Ternois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Béthune", uic: 87342006, cat_pro: "1- Pôle régional", cat_sgp: "PEM de centralité", ligne_flux: "B09", axe: "Béthune", secteur: "Artois Ternois", profile: "bv_ouvert_pers", config: "biface", quais: 4 },
-{ nom: "Chocques", uic: 87342220, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte périurbaine", ligne_flux: "B11", axe: "Béthune-Hazebrouck", secteur: "Artois Ternois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Corbehem", uic: 87345116, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Gare périurbaine", ligne_flux: "B08", axe: "Arras-Douai", secteur: "Artois Ternois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Coron de Méricourt", uic: 87345132, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Gare urbaine", ligne_flux: "B06", axe: "Lens-Libercourt", secteur: "Artois Ternois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Croix - Wasquehal", uic: 87286716, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Gare urbaine", ligne_flux: "B01", axe: "Lille-Tourcoing", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Croix L'Allumette", uic: 87281055, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte urbaine", ligne_flux: "B01", axe: "Lille-Tourcoing", secteur: "Zone Urbaine Lille", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Cuinchy", uic: 87342410, cat_pro: "3- Pôle Relais", cat_sgp: "Halte périurbaine", ligne_flux: "B09", axe: "Béthune-Don", secteur: "Zone Urbaine Lille", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Don - Sainghin", uic: 87286435, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM périurbain", ligne_flux: "B07", axe: "Don-Sainghin", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 3 },
-{ nom: "Douai", uic: 87345009, cat_pro: "1- Pôle régional", cat_sgp: "PEM de centralité", ligne_flux: "B08", axe: "Douai", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_pers", config: "biface", quais: 4 },
-{ nom: "Dourges", uic: 87345165, cat_pro: "3- Pôle Relais", cat_sgp: "Gare périurbaine", ligne_flux: "B06", axe: "Lens-Libercourt", secteur: "Artois Ternois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Ennevelin", uic: 87287276, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B04", axe: "Lille-Orchies", secteur: "Douaisis Valenciennois", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Farbus", uic: 87342527, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B08", axe: "Arras-Lens", secteur: "Artois Ternois", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Fouquereuil", uic: 87342204, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte périurbaine", ligne_flux: "B11", axe: "Béthune-Hazebrouck", secteur: "Artois Ternois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Fretin", uic: 87286641, cat_pro: "3- Pôle Relais", cat_sgp: "Halte périurbaine", ligne_flux: "B04", axe: "Lille-Orchies", secteur: "Douaisis Valenciennois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Ham-en-Artois", uic: 87342261, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B11", axe: "Béthune-Hazebrouck", secteur: "Artois Ternois", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Haubourdin", uic: 87286096, cat_pro: "3- Pôle Relais", cat_sgp: "Gare urbaine", ligne_flux: "B03", axe: "Don-lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Hazebrouck", uic: 87286302, cat_pro: "1- Pôle régional", cat_sgp: "PEM de centralité", ligne_flux: "B10", axe: "Hazebrouck", secteur: "Flandres", profile: "bv_ouvert_pers", config: "biface", quais: 4 },
-{ nom: "Hellemmes", uic: 87286062, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte urbaine", ligne_flux: "B02", axe: "Ascq-Lille", secteur: "Zone Urbaine Lille", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Hénin-Beaumont", uic: 87345157, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM urbain", ligne_flux: "B06", axe: "Lens-Libercourt", secteur: "Artois Ternois", profile: "bv_ouvert_pers", config: "biface", quais: 3 },
-{ nom: "Isbergues", uic: 87342279, cat_pro: "3- Pôle Relais", cat_sgp: "Gare périurbaine", ligne_flux: "B11", axe: "Béthune-Hazebrouck", secteur: "Artois Ternois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "La Bassée - Violaines", uic: 87342436, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM périurbain", ligne_flux: "B09", axe: "Béthune-Don", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 3 },
-{ nom: "La Madeleine", uic: 87286187, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Gare urbaine", ligne_flux: "B03", axe: "Hazebrouck-Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Landas", uic: 87286575, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B04", axe: "Orchies-Valenciennes", secteur: "Douaisis Valenciennois", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Leforest", uic: 87345223, cat_pro: "3- Pôle Relais", cat_sgp: "Gare périurbaine", ligne_flux: "B05", axe: "Douai-Lille", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Lens", uic: 87345025, cat_pro: "1- Pôle régional", cat_sgp: "PEM de centralité", ligne_flux: "B06", axe: "Lens", secteur: "Artois Ternois", profile: "bv_ouvert_pers", config: "biface", quais: 4 },
-{ nom: "Lesquin", uic: 87286849, cat_pro: "3- Pôle Relais", cat_sgp: "Gare urbaine", ligne_flux: "B04", axe: "Lille-Orchies", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Lesquin Aéroport", uic: "Nouvelle Gare", cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM périurbain", ligne_flux: "B04", axe: "REHF", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 3 },
-{ nom: "Lezennes", uic: 87287102, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte urbaine", ligne_flux: "B02", axe: "Ascq-Lille", secteur: "Zone Urbaine Lille", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Libercourt", uic: 87345256, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM périurbain", ligne_flux: "B06", axe: "Lens-Libercourt", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 3 },
-{ nom: "Lille CHR", uic: 87109306, cat_pro: "3bis- Pôle Entrée Urbaine", cat_sgp: "Halte urbaine", ligne_flux: "B03", axe: "Don-lille", secteur: "Zone Urbaine Lille", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Lille Délivrance", uic: "Point d'arrêt nouveau", cat_pro: "3bis- Pôle Entrée Urbaine", cat_sgp: "Halte", ligne_flux: "B03", axe: "Tangentielle Ouest", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Lille Porte de Douai", uic: 87287250, cat_pro: "3bis- Pôle Entrée Urbaine", cat_sgp: "Halte urbaine", ligne_flux: "B03", axe: "Don-lille", secteur: "Zone Urbaine Lille", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Lille Sud", uic: "Nouvelle Gare", cat_pro: "3bis- Pôle Entrée Urbaine", cat_sgp: "PEM urbain", ligne_flux: "B03", axe: "Don-Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_pers", config: "biface", quais: 3 },
-{ nom: "Lillers", uic: 87342238, cat_pro: "3- Pôle Relais", cat_sgp: "Gare périurbaine", ligne_flux: "B11", axe: "Béthune-Hazebrouck", secteur: "Artois Ternois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Liévin", uic: 87345041, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte urbaine", ligne_flux: "B09", axe: "Béthune-Lens", secteur: "Artois Ternois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Loison-sous-Lens", uic: 87345231, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Gare urbaine", ligne_flux: "B07", axe: "Don-Lens", secteur: "Artois Ternois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Lomme", uic: "Point d'arrêt nouveau", cat_pro: "3bis- Pôle Entrée Urbaine", cat_sgp: "Gare urbaine", ligne_flux: "B03", axe: "Tangentielle Ouest", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Loos lez Lille", uic: 87286112, cat_pro: "3bis- Pôle Entrée Urbaine", cat_sgp: "Gare urbaine", ligne_flux: "B03", axe: "Don-lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Loos-en-Gohelle", uic: 87345033, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte urbaine", ligne_flux: "B09", axe: "Béthune-Lens", secteur: "Artois Ternois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Marquillies", uic: 87342469, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B09", axe: "Béthune-Don", secteur: "Zone Urbaine Lille", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Mazingarbe", uic: 87342121, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte périurbaine", ligne_flux: "B09", axe: "Béthune-Lens", secteur: "Artois Ternois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Meurchin", uic: 87345272, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte périurbaine", ligne_flux: "B07", axe: "Don-Lens", secteur: "Zone Urbaine Lille", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Mont de Terre", uic: 87287128, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte urbaine", ligne_flux: "B04", axe: "Lille-Orchies", secteur: "Douaisis Valenciennois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Montigny-en-Ostrevent", uic: 87345306, cat_pro: "3- Pôle Relais", cat_sgp: "Gare périurbaine", ligne_flux: "B05", axe: "Douai-Valenciennes", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Nieppe", uic: 87287151, cat_pro: "3- Pôle Relais", cat_sgp: "Halte périurbaine", ligne_flux: "B10", axe: "Hazebrouck-Lille", secteur: "Zone Urbaine Lille", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Nomain", uic: 87286609, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B04", axe: "Lille-Orchies", secteur: "Douaisis Valenciennois", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Nœux-les-Mines", uic: 87342139, cat_pro: "3- Pôle Relais", cat_sgp: "Gare urbaine", ligne_flux: "B09", axe: "Béthune-Lens", secteur: "Artois Ternois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Orchies", uic: 87286583, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM périurbain", ligne_flux: "B04", axe: "Lille-Orchies", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 3 },
-{ nom: "Ostricourt", uic: 87345249, cat_pro: "3- Pôle Relais", cat_sgp: "Halte périurbaine", ligne_flux: "B05", axe: "Douai-Lille", secteur: "Douaisis Valenciennois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Phalempin", uic: 87286500, cat_pro: "3- Pôle Relais", cat_sgp: "PEM périurbain", ligne_flux: "B05", axe: "Douai-Lille", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 3 },
-{ nom: "Pont de Bois", uic: 87286831, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM urbain", ligne_flux: "B02", axe: "Ascq-Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_pers", config: "biface", quais: 3 },
-{ nom: "Pont de Sallaumines", uic: 87345124, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte urbaine", ligne_flux: "B06", axe: "Lens-Libercourt", secteur: "Artois Ternois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Pont de la Deûle", uic: 87345207, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte urbaine", ligne_flux: "B05", axe: "Douai-Lille", secteur: "Douaisis Valenciennois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Pont-à-Vendin", uic: 87345264, cat_pro: "3- Pôle Relais", cat_sgp: "Halte périurbaine", ligne_flux: "B07", axe: "Don-Lens", secteur: "Artois Ternois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Pérenchies", uic: 87286278, cat_pro: "3- Pôle Relais", cat_sgp: "Gare urbaine", ligne_flux: "B10", axe: "Hazebrouck-Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Raismes", uic: 87343319, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Gare urbaine", ligne_flux: "B05", axe: "Douai-Valenciennes", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Ronchin", uic: 87286534, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte urbaine", ligne_flux: "B05", axe: "Douai-Lille", secteur: "Douaisis Valenciennois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Rosult", uic: 87286567, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B04", axe: "Orchies-Valenciennes", secteur: "Douaisis Valenciennois", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Roubaix", uic: 87286732, cat_pro: "3bis- Pôle Entrée Urbaine", cat_sgp: "PEM de centralité", ligne_flux: "B01", axe: "Lille-Tourcoing", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_pers", config: "biface", quais: 4 },
-{ nom: "Rœux", uic: 87342089, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte périurbaine", ligne_flux: "B08", axe: "Arras-Douai", secteur: "Artois Ternois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Saint-Amand-les-Eaux", uic: 87343103, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM urbain", ligne_flux: "B04", axe: "Orchies-Valenciennes", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_pers", config: "biface", quais: 3 },
-{ nom: "Saint-André-lez-Lille", uic: 87286195, cat_pro: "3bis- Pôle Entrée Urbaine", cat_sgp: "Gare urbaine", ligne_flux: "B03", axe: "Hazebrouck-Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Sallaumines", uic: 87345215, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte urbaine", ligne_flux: "B07", axe: "Don-Lens", secteur: "Artois Ternois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Salomé", uic: 87342451, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B09", axe: "Béthune-Don", secteur: "Zone Urbaine Lille", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Santes", uic: 87286401, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Gare périurbaine", ligne_flux: "B07", axe: "Don-lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
-{ nom: "Seclin", uic: 87286518, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM périurbain", ligne_flux: "B05", axe: "Douai-Lille", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 3 },
-{ nom: "Sequedin", uic: "87286310", cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte urbaine", ligne_flux: "B03", axe: "Tangentielle Ouest", secteur: "Zone Urbaine Lille", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Somain", uic: 87345314, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM périurbain", ligne_flux: "B05", axe: "Douai-Valenciennes", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 3 },
-{ nom: "Steenbecque", uic: 87342295, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B11", axe: "Béthune-Hazebrouck", secteur: "Artois Ternois", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Steenwerck", uic: 87286161, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B10", axe: "Hazebrouck-Lille", secteur: "Zone Urbaine Lille", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Strazeele", uic: 87286203, cat_pro: "3- Pôle Relais", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B10", axe: "Hazebrouck-Lille", secteur: "Zone Urbaine Lille", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Templeuve", uic: 87286625, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM périurbain", ligne_flux: "B04", axe: "Lille-Orchies", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_sans_pers", config: "biface", quais: 3 },
-{ nom: "Thiennes", uic: 87342287, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B11", axe: "Béthune-Hazebrouck", secteur: "Artois Ternois", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Tourcoing", uic: 87286542, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM de centralité", ligne_flux: "B01", axe: "Lille-Tourcoing", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_pers", config: "biface", quais: 4 },
-{ nom: "Valenciennes", uic: 87343004, cat_pro: "1- Pôle régional", cat_sgp: "PEM de centralité", ligne_flux: "B04", axe: "Valenciennes", secteur: "Douaisis Valenciennois", profile: "bv_ouvert_pers", config: "biface", quais: 4 },
-{ nom: "Vimy", uic: 87342576, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte périurbaine", ligne_flux: "B08", axe: "Arras-Lens", secteur: "Artois Ternois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Vitry-en-Artois", uic: 87342113, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte périurbaine", ligne_flux: "B08", axe: "Arras-Douai", secteur: "Artois Ternois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Wallers", uic: 87343301, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte en périurbain discontinu", ligne_flux: "B05", axe: "Douai-Valenciennes", secteur: "Douaisis Valenciennois", profile: "halte_simple", config: "unilaterale", quais: 1 },
-{ nom: "Wattignies - Templemars", uic: 87286526, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte urbaine", ligne_flux: "B05", axe: "Douai-Lille", secteur: "Douaisis Valenciennois", profile: "halte_abri", config: "biface", quais: 2 },
-{ nom: "Wavrin", uic: 87286419, cat_pro: "3- Pôle Relais", cat_sgp: "Gare périurbaine", ligne_flux: "B07", axe: "Don-lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 }
+{ nom: "Gare Test 2", uic: 99999992, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Halte périurbaine", ligne_flux: "TEST", axe: "Test Paris", secteur: "Test", profile: "halte_simple", config: "unilaterale", quais: 1 }
 ];
 
 /* ============================================================
@@ -3335,62 +3239,133 @@ async function restoreBlobUrls(all) {
 }
 
 /* Push one visite to Supabase (silent, non-blocking) */
-async function pushVisiteToSupa(v) {
+/* ============================================================
+   v71 — PUSH/PULL EN GRANULARITÉ CRITÈRE
+   ============================================================
+   Au lieu de pousser toute la visite à chaque modif (et écraser ce
+   qu'un autre utilisateur vient de saisir sur un autre onglet),
+   on push UN row par critère modifié dans la table `responses`.
+   Comme ça Tony peut taper Quais et Maram peut taper PMR de la
+   même gare sans collision.
+   La meta de la visite (auteurs cumulés, date visite, météo) va
+   dans la table `visite_meta` séparée.
+   ============================================================ */
+
+// Push UN critère modifié vers Supabase (granularité fine)
+async function pushCritereToSupa(gareName, critereId, value, auteur) {
   if (!supa) return;
   try {
-    const { error } = await supa.from('visites').upsert({
-      gare: v.gare,
-      data: v.data || {},
-      meta: { updated: v.updated, auteur: v.auteur },
-      gare_info: {},
-      auteur: v.auteur || 'Anonyme',
-      updated_at: new Date(v.updated || Date.now()).toISOString()
-    });
-    if (error) console.warn('Supabase upsert:', error);
-  } catch (e) { console.warn('Push failed:', e); }
+    const { error } = await supa.from('responses').upsert({
+      gare: gareName,
+      critere_id: critereId,
+      value: value === undefined ? null : value,
+      auteur: auteur || 'Anonyme',
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'gare,critere_id' });
+    if (error) console.warn('Supabase responses upsert:', error);
+  } catch (e) { console.warn('Push critère failed:', e); }
 }
 
-/* Pull all visites from Supabase, merge into local state */
+// Push la meta visite (auteurs, météo, date_visite) — peu fréquent
+async function pushVisiteMetaToSupa(v) {
+  if (!supa) return;
+  try {
+    const { error } = await supa.from('visite_meta').upsert({
+      gare: v.gare,
+      auteurs: v.auteur || 'Anonyme',
+      date_visite: v.data?.visite_date || null,
+      meteo: v.data?.visite_meteo || null,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'gare' });
+    if (error) console.warn('Supabase visite_meta upsert:', error);
+  } catch (e) { console.warn('Push meta failed:', e); }
+}
+
+// Supprime un critère côté serveur (utilisé quand on clear une réponse)
+async function deleteCritereFromSupa(gareName, critereId) {
+  if (!supa) return;
+  try {
+    await supa.from('responses').delete()
+      .eq('gare', gareName).eq('critere_id', critereId);
+  } catch (e) { console.warn('Delete critère failed:', e); }
+}
+
+/* Pull tous les responses + visite_meta, reconstruit la structure `all` */
 async function pullAllFromSupa() {
   if (!supa) return null;
   try {
-    const { data, error } = await supa.from('visites').select('*');
-    if (error || !data) { console.warn('Supabase pull:', error); return null; }
+    const [respRes, metaRes] = await Promise.all([
+      supa.from('responses').select('*'),
+      supa.from('visite_meta').select('*')
+    ]);
+    if (respRes.error) { console.warn('Pull responses:', respRes.error); return null; }
+    if (metaRes.error) console.warn('Pull meta:', metaRes.error);
+
     const all = {};
-    data.forEach(row => {
-      all[row.gare] = {
-        gare: row.gare,
-        data: row.data || {},
-        updated: row.meta?.updated || new Date(row.updated_at).getTime(),
-        auteur: row.auteur || row.meta?.auteur || 'Anonyme'
-      };
+    // Reconstituer les visites depuis les responses (1 row = 1 critère)
+    (respRes.data || []).forEach(row => {
+      if (!all[row.gare]) {
+        all[row.gare] = { gare: row.gare, data: {}, updated: 0, auteur: 'Anonyme' };
+      }
+      // value peut être null (= critère existait mais a été nettoyé)
+      if (row.value !== null && row.value !== undefined) {
+        all[row.gare].data[row.critere_id] = row.value;
+      }
+      // Le timestamp de la visite = max des timestamps de ses critères
+      const ts = new Date(row.updated_at).getTime();
+      if (ts > all[row.gare].updated) all[row.gare].updated = ts;
     });
+    // Compléter avec la meta visite
+    (metaRes.data || []).forEach(row => {
+      if (!all[row.gare]) {
+        all[row.gare] = { gare: row.gare, data: {}, updated: 0, auteur: 'Anonyme' };
+      }
+      all[row.gare].auteur = row.auteurs || all[row.gare].auteur;
+    });
+
     saveAll(all);
     return all;
   } catch (e) { console.warn('Pull failed:', e); return null; }
 }
 
-/* Delete one visite (Supabase + local) */
+/* Delete une visite entière (toutes ses responses + sa meta) */
 async function deleteVisiteRemote(gareName) {
   try { const all = loadAll(); delete all[gareName]; saveAll(all); } catch (e) {}
   if (!supa) return;
-  try { await supa.from('visites').delete().eq('gare', gareName); }
-  catch (e) { console.warn('Delete failed:', e); }
+  try {
+    await Promise.all([
+      supa.from('responses').delete().eq('gare', gareName),
+      supa.from('visite_meta').delete().eq('gare', gareName)
+    ]);
+  } catch (e) { console.warn('Delete failed:', e); }
 }
 
-/* Real-time sync : refresh app state when teammates change data */
+/* Real-time sync : refresh app state when teammates change data
+   On écoute les 2 tables (responses pour les réponses, visite_meta pour les auteurs) */
 function setupRealtimeSync(onChange) {
   if (!supa) return () => {};
   try {
-    const channel = supa.channel('visites_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'visites' }, async () => {
+    let pullTimeout = null;
+    const schedulePull = () => {
+      // Debounce le pull : si plusieurs events arrivent en rafale (typique en
+      // mode multi-user), on attend que ça se calme avant de re-fetch.
+      if (pullTimeout) clearTimeout(pullTimeout);
+      pullTimeout = setTimeout(async () => {
         const fresh = await pullAllFromSupa();
         if (fresh) onChange(fresh);
-      })
+      }, 400);
+    };
+    const channel = supa.channel('responses_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'responses' }, schedulePull)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'visite_meta' }, schedulePull)
       .subscribe();
     return () => { try { supa.removeChannel(channel); } catch (e) {} };
   } catch (e) { console.warn('Realtime setup failed:', e); return () => {}; }
 }
+
+/* DEPRECATED — gardé pour compat avec code legacy (ne fait plus rien)
+   Le push se fait maintenant par critère via pushCritereToSupa */
+async function pushVisiteToSupa(v) { /* no-op : voir pushCritereToSupa */ }
 
 /* Photo upload to Supabase Storage */
 /* ============================================================
@@ -6852,7 +6827,14 @@ function App() {
       };
       const newV = { gare: gareName, data: initialData, updated: Date.now(), auteur };
       setAll((a) => ({ ...a, [gareName]: newV }));
-      pushVisiteToSupa(newV);
+      // v71 : push chaque critère initial + meta visite individuellement
+      const me = auteur || (typeof localStorage !== 'undefined' ? localStorage.getItem('serm-auteur') : null) || 'Anonyme';
+      Object.entries(initialData).forEach(([cid, val]) => {
+        if (val !== undefined && val !== null && val !== '') {
+          pushCritereToSupa(gareName, cid, val, me);
+        }
+      });
+      pushVisiteMetaToSupa(newV);
     }
     setRoute({ name: 'form', gareName });
   };
@@ -6871,6 +6853,9 @@ function App() {
      ============================================================ */
   const pendingPushes = useRef({});  // gareName -> timeoutId (push en attente)
   const pendingState = useRef({});   // gareName -> visite locale en attente de confirmation serveur
+  // v71 : buffer des critères modifiés à push (par gare)
+  const pendingCriteres = useRef({}); // gareName -> Set<critereId>
+  const pendingMetaFlag = useRef({}); // gareName -> bool (meta visite à push)
 
   const debouncedPush = useCallback((visite) => {
     const gn = visite.gare;
@@ -6882,8 +6867,26 @@ function App() {
     pendingPushes.current[gn] = setTimeout(async () => {
       delete pendingPushes.current[gn];
       const versionPushed = visite;
+      // Récupérer les critères à pusher pour cette gare (et reset le buffer)
+      const critSet = pendingCriteres.current[gn] || new Set();
+      const critsToFlush = Array.from(critSet);
+      pendingCriteres.current[gn] = new Set();
+      const flushMeta = pendingMetaFlag.current[gn] === true;
+      pendingMetaFlag.current[gn] = false;
+      const me = auteur || (typeof localStorage !== 'undefined' ? localStorage.getItem('serm-auteur') : null) || 'Anonyme';
+
       try {
-        await pushVisiteToSupa(versionPushed);
+        // v71 : push CHAQUE critère modifié individuellement (multi-user safe)
+        await Promise.all(critsToFlush.map(cid => {
+          const val = versionPushed.data?.[cid];
+          if (val === undefined || val === null) {
+            // Critère effacé : on supprime côté serveur
+            return deleteCritereFromSupa(gn, cid);
+          }
+          return pushCritereToSupa(gn, cid, val, me);
+        }));
+        // Meta visite (auteurs, date_visite, météo) si changée
+        if (flushMeta) await pushVisiteMetaToSupa(versionPushed);
       } catch (e) {
         console.warn('Push failed, keeping local pending state:', e);
         // En cas d'erreur, on GARDE pendingState pour ne pas perdre les modifs
@@ -6899,7 +6902,7 @@ function App() {
         }
       }, 3000);
     }, 800);
-  }, []);
+  }, [auteur]);
 
   const updateVisite = (v) => {
     if (readOnly) return; // Mode consultation — aucune écriture
@@ -6908,6 +6911,30 @@ function App() {
     const auteurs = new Set(existing.split(',').map(s => s.trim()).filter(Boolean));
     if (auteur) auteurs.add(auteur);
     const updated = { ...v, auteur: [...auteurs].join(', '), updated: new Date().toISOString() };
+
+    // v71 : calculer le diff vs ancienne visite pour identifier les critères modifiés
+    const prevVisite = all[v.gare] || { data: {}, auteur: '' };
+    const prevData = prevVisite.data || {};
+    const newData = updated.data || {};
+    const allCritIds = new Set([...Object.keys(prevData), ...Object.keys(newData)]);
+
+    if (!pendingCriteres.current[v.gare]) {
+      pendingCriteres.current[v.gare] = new Set();
+    }
+    allCritIds.forEach(cid => {
+      // Compare structurellement (JSON.stringify suffit pour nos objets simples)
+      const a = prevData[cid], b = newData[cid];
+      if (JSON.stringify(a) !== JSON.stringify(b)) {
+        pendingCriteres.current[v.gare].add(cid);
+      }
+    });
+    // Meta visite changée ?
+    if (prevVisite.auteur !== updated.auteur ||
+        prevData.visite_date !== newData.visite_date ||
+        prevData.visite_meteo !== newData.visite_meteo) {
+      pendingMetaFlag.current[v.gare] = true;
+    }
+
     setAll((a) => ({ ...a, [v.gare]: updated }));
     debouncedPush(updated);
   };
