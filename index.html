@@ -4756,21 +4756,13 @@ function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, 
           textTransform: 'uppercase', fontWeight: 500, alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <span>{todayStr}</span>
             <span style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <button onClick={onToggleEdit} style={{
-                color: editMode ? 'var(--paper-light)' : 'rgba(245,242,235,0.85)',
-                background: editMode ? 'var(--red)' : 'transparent',
+              <button onClick={() => window.location.reload()} style={{
+                color: 'rgba(245,242,235,0.85)',
+                background: 'transparent',
                 fontSize: 9.5, letterSpacing: '0.1em',
                 textTransform: 'uppercase', fontWeight: 600,
-                padding: editMode ? '3px 8px' : 0, borderRadius: 2
-              }}>{editMode ? '✓ Édition' : '🛠 Éditer'}</button>
-              {editMode && <button onClick={onRestoreGrille} style={{
-                color: 'rgba(245,242,235,0.6)', fontSize: 9.5, letterSpacing: '0.1em',
-                textTransform: 'uppercase', fontWeight: 600
-              }}>↺ Restaurer</button>}
-              {editMode && <button onClick={() => exportSectionsAsJS(auteur)} style={{
-                color: 'rgba(245,242,235,0.85)', fontSize: 9.5, letterSpacing: '0.1em',
-                textTransform: 'uppercase', fontWeight: 600
-              }} title="Télécharge un .js prêt à intégrer dans le HTML source">⇣ Grille .js</button>}
+                padding: 0, borderRadius: 2
+              }} title="Actualiser pour voir les modifications des autres enquêteurs">↻ Actualiser</button>
               <button onClick={onExportAll} style={{
                 color: 'rgba(245,242,235,0.85)', fontSize: 9.5, letterSpacing: '0.1em',
                 textTransform: 'uppercase', fontWeight: 600, padding: 0
