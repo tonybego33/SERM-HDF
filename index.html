@@ -4002,6 +4002,489 @@ const fmtAgo = (ts) => {
   return `il y a ${Math.floor(h / 24)} j`;
 };
 
+/* ============================================================
+   MINI-CARTE DU RÉSEAU SERM (à droite du plan)
+   Affiche un point rouge clignotant sur la gare en cours.
+   ============================================================ */
+const SERM_LAYOUT = {
+  // Positions schématiques (% de viewBox 100x100) — basées sur la carte SERM HDF.
+  // Lille Flandres = hub central, axes en branches.
+  // Nœuds principaux (PEM de centralité) :
+  "Lille Flandres":  { x: 54, y: 32, hub: true },
+  "Hazebrouck":      { x: 22, y: 16, hub: true },
+  "Tourcoing":       { x: 64, y: 16, hub: true },
+  "Roubaix":         { x: 62, y: 22, hub: true },
+  "Béthune":         { x: 28, y: 48, hub: true },
+  "Lens":            { x: 40, y: 56, hub: true },
+  "Arras":           { x: 38, y: 78, hub: true },
+  "Douai":           { x: 56, y: 60, hub: true },
+  "Valenciennes":    { x: 82, y: 50, hub: true },
+
+  // Branche Hazebrouck → Lille (axe B10)
+  "Steenwerck":      { x: 26, y: 22 },
+  "Bailleul":        { x: 30, y: 22 },
+  "Strazeele":       { x: 24, y: 19 },
+  "Nieppe":          { x: 32, y: 25 },
+  "Armentières":     { x: 38, y: 26 },
+  "Pérenchies":      { x: 46, y: 28 },
+  "Saint-André-lez-Lille": { x: 50, y: 29 },
+  "La Madeleine":    { x: 53, y: 31 },
+
+  // Branche Lille → Tourcoing (axe B01)
+  "Croix - Wasquehal": { x: 57, y: 24 },
+  "Croix L'Allumette": { x: 59, y: 22 },
+
+  // Branche Lille → Ascq → Tournai (axe B02)
+  "Hellemmes":       { x: 56, y: 33 },
+  "Annappes":        { x: 60, y: 34 },
+  "Ascq":            { x: 64, y: 35 },
+  "Baisieux":        { x: 68, y: 36 },
+  "Lezennes":        { x: 58, y: 35 },
+  "Pont de Bois":    { x: 60, y: 36 },
+
+  // Branche Lille → Orchies → Valenciennes (axe B04)
+  "Lesquin":         { x: 56, y: 38 },
+  "Lesquin Aéroport":{ x: 58, y: 40 },
+  "Mont de Terre":   { x: 55, y: 36 },
+  "Fretin":          { x: 60, y: 42 },
+  "Ennevelin":       { x: 64, y: 44 },
+  "Templeuve":       { x: 68, y: 46 },
+  "Orchies":         { x: 72, y: 48 },
+  "Landas":          { x: 75, y: 49 },
+  "Rosult":          { x: 78, y: 50 },
+  "Saint-Amand-les-Eaux": { x: 80, y: 50 },
+
+  // Branche Douai → Valenciennes (axe B05)
+  "Pont de la Deûle":{ x: 58, y: 60 },
+  "Wattignies - Templemars": { x: 53, y: 47 },
+  "Ronchin":         { x: 54, y: 36 },
+  "Seclin":          { x: 53, y: 50 },
+  "Phalempin":       { x: 54, y: 53 },
+  "Ostricourt":      { x: 55, y: 56 },
+  "Leforest":        { x: 53, y: 58 },
+  "Montigny-en-Ostrevent": { x: 62, y: 58 },
+  "Somain":          { x: 68, y: 56 },
+  "Wallers":         { x: 73, y: 54 },
+  "Raismes":         { x: 77, y: 52 },
+  "Beuvrages":       { x: 80, y: 51 },
+
+  // Branche Béthune → Don → Lens (axes B07, B09)
+  "Cuinchy":         { x: 30, y: 50 },
+  "Beuvry lès Béthune": { x: 32, y: 50 },
+  "La Bassée - Violaines": { x: 35, y: 51 },
+  "Salomé":          { x: 37, y: 52 },
+  "Marquillies":     { x: 39, y: 52 },
+  "Don - Sainghin":  { x: 42, y: 53 },
+  "Haubourdin":      { x: 47, y: 38 },
+  "Loos lez Lille":  { x: 50, y: 36 },
+  "Santes":          { x: 45, y: 40 },
+  "Wavrin":          { x: 43, y: 44 },
+  "Sequedin":        { x: 48, y: 33 },
+  "Lille CHR":       { x: 51, y: 35 },
+  "Lille Sud":       { x: 52, y: 38 },
+  "Lille Délivrance": { x: 49, y: 32 },
+  "Lille Porte de Douai": { x: 52, y: 36 },
+  "Lomme":           { x: 46, y: 32 },
+
+  // Branche Béthune → Hazebrouck (axe B11)
+  "Fouquereuil":     { x: 27, y: 47 },
+  "Chocques":        { x: 26, y: 46 },
+  "Lillers":         { x: 24, y: 45 },
+  "Ham-en-Artois":   { x: 23, y: 42 },
+  "Isbergues":       { x: 22, y: 38 },
+  "Thiennes":        { x: 22, y: 34 },
+  "Steenbecque":     { x: 22, y: 30 },
+
+  // Branche Béthune → Lens (axe B09)
+  "Mazingarbe":      { x: 30, y: 51 },
+  "Nœux-les-Mines":  { x: 32, y: 52 },
+  "Bully - Grenay":  { x: 35, y: 54 },
+  "Loos-en-Gohelle": { x: 38, y: 56 },
+  "Liévin":          { x: 39, y: 56 },
+
+  // Branche Lens → Libercourt → Douai (axe B06)
+  "Coron de Méricourt": { x: 41, y: 57 },
+  "Sallaumines":     { x: 42, y: 57 },
+  "Pont de Sallaumines": { x: 43, y: 57 },
+  "Billy-Montigny":  { x: 44, y: 58 },
+  "Loison-sous-Lens":{ x: 41, y: 58 },
+  "Pont-à-Vendin":   { x: 42, y: 56 },
+  "Meurchin":        { x: 44, y: 56 },
+  "Bauvin - Provin": { x: 46, y: 55 },
+  "Dourges":         { x: 48, y: 58 },
+  "Hénin-Beaumont":  { x: 49, y: 60 },
+  "Libercourt":      { x: 50, y: 60 },
+
+  // Branche Arras (axe B08)
+  "Avion":           { x: 39, y: 64 },
+  "Vimy":            { x: 38, y: 70 },
+  "Bailleul-Sir-Berthoult": { x: 38, y: 72 },
+  "Farbus":          { x: 38, y: 74 },
+  "Biache-Saint-Vaast": { x: 44, y: 76 },
+  "Brebières":       { x: 48, y: 72 },
+  "Corbehem":        { x: 50, y: 70 },
+  "Vitry-en-Artois": { x: 46, y: 76 },
+  "Rœux":            { x: 42, y: 76 }
+};
+
+const SERM_LINES = [
+  // B10 — Hazebrouck → Lille
+  { stations: ['Hazebrouck','Strazeele','Steenwerck','Bailleul','Nieppe','Armentières','Pérenchies','Saint-André-lez-Lille','La Madeleine','Lille Flandres'] },
+  // B01 — Lille → Tourcoing/Roubaix
+  { stations: ['Lille Flandres','Croix L\'Allumette','Croix - Wasquehal','Roubaix','Tourcoing'] },
+  // B02 — Lille → Ascq → Tournai
+  { stations: ['Lille Flandres','Hellemmes','Pont de Bois','Lezennes','Annappes','Ascq','Baisieux'] },
+  // B04 — Lille → Orchies → Saint-Amand
+  { stations: ['Lille Flandres','Mont de Terre','Lesquin','Lesquin Aéroport','Fretin','Ennevelin','Templeuve','Orchies','Landas','Rosult','Saint-Amand-les-Eaux','Valenciennes'] },
+  // B05 — Lille → Douai → Valenciennes
+  { stations: ['Lille Flandres','Ronchin','Wattignies - Templemars','Seclin','Phalempin','Ostricourt','Leforest','Douai','Pont de la Deûle','Montigny-en-Ostrevent','Somain','Wallers','Raismes','Beuvrages','Valenciennes'] },
+  // B07/B09 — Béthune → Don → Lille (Don-Sainghin / Don-Lille)
+  { stations: ['Béthune','Cuinchy','Beuvry lès Béthune','La Bassée - Violaines','Salomé','Marquillies','Don - Sainghin','Wavrin','Santes','Haubourdin','Loos lez Lille','Lille Flandres'] },
+  // B11 — Béthune → Hazebrouck
+  { stations: ['Béthune','Fouquereuil','Chocques','Lillers','Ham-en-Artois','Isbergues','Thiennes','Steenbecque','Hazebrouck'] },
+  // B09 — Béthune → Lens
+  { stations: ['Béthune','Mazingarbe','Nœux-les-Mines','Bully - Grenay','Loos-en-Gohelle','Liévin','Lens'] },
+  // B06 — Lens → Libercourt → Douai
+  { stations: ['Lens','Coron de Méricourt','Sallaumines','Billy-Montigny','Hénin-Beaumont','Libercourt','Dourges','Douai'] },
+  // B08 — Arras → Lens / Arras → Douai
+  { stations: ['Arras','Rœux','Bailleul-Sir-Berthoult','Farbus','Vimy','Avion','Lens'] },
+  { stations: ['Arras','Vitry-en-Artois','Biache-Saint-Vaast','Brebières','Corbehem','Douai'] }
+];
+
+/* ============================================================
+   COMPONENTS — small UI atoms
+   ============================================================ */
+function Kicker({ children, color = 'var(--red)' }) {
+  return (
+    <div className="kicker" style={{ display: 'flex', alignItems: 'center', gap: 10, color, marginBottom: 8 }}>
+      <span style={{ width: 18, height: 1.5, background: color }} />
+      {children}
+    </div>);
+
+}
+
+function ProgressRing({ pct, size = 44, stroke = 4, color = 'var(--red)' }) {
+  const r = (size - stroke) / 2;
+  const C = 2 * Math.PI * r;
+  return (
+    <div style={{ width: size, height: size, position: 'relative', flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--border)" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+        strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - pct / 100)}
+        style={{ transition: 'stroke-dashoffset 0.4s ease' }} />
+      </svg>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: size > 50 ? 13 : 10, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+        {pct}%
+      </div>
+    </div>);
+
+}
+
+function Stamp({ children, color = 'var(--red)' }) {
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      padding: '2px 7px', border: `1.2px solid ${color}`, color,
+      borderRadius: 2, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.12em',
+      textTransform: 'uppercase', transform: 'rotate(-1.5deg)',
+      fontFamily: 'var(--font-display)'
+    }}>{children}</div>);
+
+}
+
+
+/* ============================================================
+   NETWORK MAP — carte SVG du réseau SERM HDF
+   Le SVG est inliné dans le HTML via <template id="hdf-map-svg">
+   → plus de fichier externe, plus de NOT_FOUND
+   ============================================================ */
+let _networkSvgPromise = null;
+function loadNetworkSvg() {
+  if (!_networkSvgPromise) {
+    _networkSvgPromise = new Promise((resolve) => {
+      const tpl = document.getElementById('hdf-map-svg');
+      resolve(tpl ? tpl.innerHTML.trim() : '');
+    });
+  }
+  return _networkSvgPromise;
+}
+
+/* Slug helper : "Lille Flandres" → "gare-lille-flandres"  */
+function gareSlug(nom) {
+  return 'gare-' + nom
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/œ/g, 'oe')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function NetworkMap({ statuses = {}, style = {} }) {
+  const ref = useRef(null);
+  const [loaded, setLoaded] = useState(false);
+
+  // Charge le SVG une seule fois et l'injecte tel quel (zéro modification)
+  useEffect(() => {
+    let off = false;
+    loadNetworkSvg().then(svg => {
+      if (off || !ref.current) return;
+      ref.current.innerHTML = svg;
+      const root = ref.current.querySelector('svg');
+      if (root) {
+        root.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        root.style.width = '100%';
+        root.style.height = '100%';
+        root.style.display = 'block';
+      }
+      setLoaded(true);
+    });
+    return () => { off = true; };
+  }, []);
+
+  // Au changement de statuses : on ajoute juste une classe sur le <g id="gare-xxx"> correspondant.
+  // Le CSS .nm-wip / .nm-done injecté ci-dessous fait toute la coloration + l'animation.
+  useEffect(() => {
+    if (!loaded || !ref.current) return;
+    const svg = ref.current.querySelector('svg');
+    if (!svg) return;
+    svg.querySelectorAll('[id^="gare-"]').forEach(g => {
+      const id = g.getAttribute('id');
+      const baseId = id.replace(/[0-9]+$/, ''); // gare-armentieres1 → gare-armentieres
+      const status = statuses[id] || statuses[baseId];
+      g.classList.remove('nm-wip', 'nm-done');
+      if (status === 'wip') g.classList.add('nm-wip');
+      else if (status === 'done') g.classList.add('nm-done');
+    });
+  }, [loaded, JSON.stringify(statuses)]);
+
+  return (
+    <div ref={ref} className="network-map" style={{
+      width: '100%', height: '100%', position: 'relative', ...style
+    }} />
+  );
+}
+
+/* CSS pour la coloration des gares visitées — injecté une fois au chargement.
+   Animation rouge clignotant pour wip, vert plein pour done. */
+if (typeof document !== 'undefined' && !document.getElementById('nm-styles')) {
+  const s = document.createElement('style');
+  s.id = 'nm-styles';
+  s.textContent = `
+    .network-map .nm-wip path, .network-map .nm-wip circle {
+      fill: #C8102E !important;
+      stroke: #C8102E !important;
+      animation: nmBlink 1.4s ease-in-out infinite;
+    }
+    .network-map .nm-done path, .network-map .nm-done circle {
+      fill: #1D5E3A !important;
+      stroke: #1D5E3A !important;
+    }
+    @keyframes nmBlink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+  `;
+  document.head.appendChild(s);
+}
+
+
+/* ============================================================
+   HERO ACCUEIL — carte plein-bleed (piste C)
+   ============================================================ */
+function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, totalGares, onPick, onOpen, onExportAll }) {
+  const mine = visites.filter(v => v.auteur === auteur);
+  const lastMine = mine[0];
+  const mineOpen = mine.filter(v => {
+    const g = GARES.find(x => x.nom === v.gare);
+    return g && visiteStats(g, v.data).pct < 100;
+  }).length;
+
+  /* Statuts par gare pour la carte */
+  const mapStatuses = useMemo(() => {
+    const out = {};
+    Object.values(all).forEach(v => {
+      const g = GARES.find(x => x.nom === v.gare);
+      if (!g) return;
+      const pct = visiteStats(g, v.data).pct;
+      out[gareSlug(v.gare)] = pct === 100 ? 'done' : pct > 0 ? 'wip' : 'todo';
+    });
+    return out;
+  }, [all]);
+
+
+
+  const ribbon = GARES.map((g) => {
+    const v = all[g.nom];
+    if (!v) return 'todo';
+    const pct = visiteStats(g, v.data).pct;
+    return pct === 100 ? 'done' : 'wip';
+  });
+
+  return (
+    <div style={{ position: 'relative', overflow: 'hidden', background: 'var(--paper-light)' }}>
+
+
+      <div style={{ position: 'relative', padding: '20px 22px 18px' }}>
+        <div style={{ fontSize: 9.5, letterSpacing: '0.18em',
+          textTransform: 'uppercase', color: 'var(--taupe)', fontWeight: 700,
+          marginBottom: 8 }}>
+          ◆ {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+        </div>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 36, fontWeight: 700,
+          letterSpacing: '-0.03em', lineHeight: 0.95, margin: '0 0 12px' }}>
+          Salut <span style={{ color: 'var(--red)' }}>{auteur}</span>.
+        </h1>
+        {mineOpen > 0 && (
+          <div style={{ fontSize: 13, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
+            Tu as <b style={{ color:'var(--ink)' }}>{mineOpen}</b> visite{mineOpen>1?'s':''} en cours.
+            {lastMine && (
+              <> Reprends&nbsp;
+                <button onClick={() => onOpen(lastMine.gare)} style={{
+                  color:'var(--red)', fontWeight:600, textDecoration:'underline',
+                  textUnderlineOffset:'2px'
+                }}>{lastMine.gare} →</button>
+              </>
+            )}
+          </div>
+        )}
+        {visited === 0 && (
+          <div style={{ fontSize: 13, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
+            Première visite ? Choisis une gare et c'est parti.
+          </div>
+        )}
+
+        {/* SCOREBOARD — 3 cellules claires : validées / en cours / restantes */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap: 8, margin:'22px 0 14px' }}>
+          <div style={{
+            background:'var(--white)', border:'1px solid var(--border)',
+            borderTop: '3px solid var(--green)', borderRadius: 2, padding:'12px 12px 10px'
+          }}>
+            <div className="tabular" style={{ fontFamily:'var(--font-display)', fontWeight:700,
+              fontSize: 32, lineHeight: 1, letterSpacing:'-0.04em', color:'var(--ink)' }}>{fullyDone}</div>
+            <div style={{ fontSize: 9.5, letterSpacing:'0.14em', textTransform:'uppercase',
+              color:'var(--green)', fontWeight:700, marginTop: 6 }}>Validée{fullyDone>1?'s':''}</div>
+            <div style={{ fontSize:10, color:'var(--taupe)', marginTop:2 }}>tous critères OK</div>
+          </div>
+          <div style={{
+            background:'var(--white)', border:'1px solid var(--border)',
+            borderTop: '3px solid var(--red)', borderRadius: 2, padding:'12px 12px 10px',
+            position:'relative', overflow:'hidden'
+          }}>
+            <div className="tabular" style={{ fontFamily:'var(--font-display)', fontWeight:700,
+              fontSize: 32, lineHeight: 1, letterSpacing:'-0.04em', color:'var(--ink)' }}>{inProgress}</div>
+            <div style={{ fontSize: 9.5, letterSpacing:'0.14em', textTransform:'uppercase',
+              color:'var(--red)', fontWeight:700, marginTop: 6, display:'flex', alignItems:'center', gap:5 }}>
+              <span style={{ width:6, height:6, borderRadius:'50%', background:'var(--red)',
+                animation:'sermBlink 1.4s ease-in-out infinite' }}/>
+              En cours
+            </div>
+            <div style={{ fontSize:10, color:'var(--taupe)', marginTop:2 }}>à terminer</div>
+          </div>
+          <div style={{
+            background:'var(--paper)', border:'1px dashed var(--border)',
+            borderRadius: 2, padding:'12px 12px 10px'
+          }}>
+            <div className="tabular" style={{ fontFamily:'var(--font-display)', fontWeight:700,
+              fontSize: 32, lineHeight: 1, letterSpacing:'-0.04em', color:'var(--taupe)' }}>{totalGares - visited}</div>
+            <div style={{ fontSize: 9.5, letterSpacing:'0.14em', textTransform:'uppercase',
+              color:'var(--taupe)', fontWeight:700, marginTop: 6 }}>À visiter</div>
+            <div style={{ fontSize:10, color:'var(--taupe-light)', marginTop:2 }}>sur {totalGares} gares</div>
+          </div>
+        </div>
+
+        {/* RIBBON + label clair */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom: 6 }}>
+            <span style={{ fontSize: 10, letterSpacing:'0.12em', textTransform:'uppercase',
+              color:'var(--ink)', fontWeight:700 }}>Avancement réseau</span>
+            <span className="tabular" style={{ fontSize: 11, color:'var(--ink-soft)', fontWeight:600 }}>
+              <b style={{ color:'var(--ink)' }}>{visited}</b>
+              <span style={{ color:'var(--taupe-light)' }}> sur {totalGares} gares</span>
+              <span style={{ color:'var(--taupe)' }}> · {Math.round(visited/totalGares*100)}%</span>
+            </span>
+          </div>
+          <div style={{ height: 10, display:'flex', gap: 2, padding: '1px',
+            background:'var(--paper-deep)', border:'1px solid var(--border)', borderRadius: 1 }}>
+            {ribbon.map((s, i) => (
+              <div key={i} style={{
+                flex: 1,
+                background: s === 'done' ? 'var(--green)'
+                          : s === 'wip'  ? 'var(--red)'
+                          : 'transparent',
+                animation: s === 'wip' ? 'sermBlink 2s ease-in-out infinite' : 'none'
+              }} />
+            ))}
+          </div>
+        </div>
+
+        <button onClick={onPick} className="serm-cta" style={{
+          width:'100%', padding:'20px 22px',
+          background:'var(--red)', color:'var(--paper-light)',
+          fontFamily:'var(--font-display)', fontSize: 17, fontWeight: 600,
+          letterSpacing:'0.04em',
+          borderRadius: 2, position:'relative', overflow:'hidden',
+          boxShadow:'0 14px 32px -10px rgba(200,16,46,0.55), 0 2px 0 rgba(0,0,0,0.08)',
+          display:'flex', alignItems:'center', justifyContent:'space-between', gap: 10,
+          transition:'transform .15s ease, box-shadow .15s ease'
+        }}
+          onMouseDown={(e)=>{ e.currentTarget.style.transform='translateY(1px)'; }}
+          onMouseUp={(e)=>{ e.currentTarget.style.transform='translateY(0)'; }}
+          onMouseLeave={(e)=>{ e.currentTarget.style.transform='translateY(0)'; }}>
+          {/* shimmer band */}
+          <span aria-hidden style={{
+            position:'absolute', top:0, bottom:0, width:'40%', left:'-50%',
+            background:'linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent)',
+            animation:'sermShine 3.5s ease-in-out infinite'
+          }}/>
+          <span style={{ display:'flex', alignItems:'center', gap: 14, position:'relative' }}>
+            <span style={{ width: 32, height: 32, borderRadius:'50%',
+              background:'rgba(245,242,235,0.22)', display:'flex', alignItems:'center',
+              justifyContent:'center', fontSize: 20, fontWeight: 300, lineHeight:1 }}>+</span>
+            <span style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:2 }}>
+              <span>Démarrer une visite</span>
+              <span style={{ fontSize:10, fontWeight:500, letterSpacing:'0.14em',
+                textTransform:'uppercase', opacity:0.75 }}>Choisir une gare →</span>
+            </span>
+          </span>
+          <span style={{ fontSize: 18, opacity: 0.9, position:'relative' }}>→</span>
+        </button>
+
+        {/* CTA secondaire : Export — visible et accessible */}
+        <button onClick={onExportAll} style={{
+          width:'100%', padding:'12px 18px', marginTop: 10,
+          background:'var(--ink)', color:'var(--paper-light)',
+          fontFamily:'var(--font-display)', fontSize: 14, fontWeight: 600,
+          letterSpacing:'0.03em', borderRadius: 2,
+          display:'flex', alignItems:'center', justifyContent:'space-between', gap: 10,
+          border: '1px solid var(--ink)'
+        }}>
+          <span style={{ display:'flex', alignItems:'center', gap: 10 }}>
+            <span style={{ fontSize: 17 }}>⇣</span>
+            <span>Exporter les données</span>
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 500, letterSpacing:'0.12em',
+            textTransform:'uppercase', opacity: 0.7 }}>
+            {visited} visite{visited > 1 ? 's' : ''} · CSV / Excel / JSON
+          </span>
+        </button>
+        <style>{`
+          @keyframes sermBlink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.55; }
+          }
+          @keyframes sermShine {
+            0% { left: -50%; }
+            55%, 100% { left: 110%; }
+          }
+          .serm-cta:active { transform: translateY(2px) !important; box-shadow: 0 6px 18px -8px rgba(200,16,46,0.6) !important; }
+        `}</style>
+      </div>
+    </div>
+  );
+}
 
 /* ============================================================
    GRID EDIT MODAL — modale unifiée pour éditer la grille
@@ -4202,6 +4685,11 @@ function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, 
   const visites = Object.values(all).sort((a, b) => b.updated - a.updated);
   const totalGares = GARES.length;
   const visited = visites.length;
+  const fullyDone = visites.filter((v) => {
+    const g = GARES.find((x) => x.nom === v.gare);
+    return g && visiteStats(g, v.data).pct === 100;
+  }).length;
+  const inProgress = visited - fullyDone;
   const todayStr = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
@@ -4294,22 +4782,12 @@ function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, 
         </div>
 
       <div style={{ padding: '0 0 100px', position: 'relative' }}>
-        {/* CTA principal : commencer une nouvelle visite */}
-        <div style={{ padding: '28px 22px 0' }}>
-          <button onClick={onPick} style={{
-            width: '100%', background: 'var(--red)', color: 'var(--paper-light)',
-            padding: '18px 22px', fontSize: 15, fontWeight: 600, letterSpacing: '0.04em',
-            borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-          }}>
-            <span>Commencer une visite</span>
-            <span style={{ fontSize: 20 }}>→</span>
-          </button>
-          <div style={{ marginTop: 10, fontSize: 11, color: 'var(--taupe)', letterSpacing: '0.04em' }}>
-            {visited > 0
-              ? `${visited} visite${visited > 1 ? 's' : ''} sur ${totalGares} gare${totalGares > 1 ? 's' : ''}`
-              : `${totalGares} gare${totalGares > 1 ? 's' : ''} disponible${totalGares > 1 ? 's' : ''}`}
-          </div>
-        </div>
+        {/* ── HERO LIGHT : sobre, dynamique, agréable ── */}
+        <FriendlyHero
+          all={all} auteur={auteur} visites={visites}
+          fullyDone={fullyDone} inProgress={inProgress} visited={visited} totalGares={totalGares}
+          onPick={onPick} onOpen={onOpen} onExportAll={onExportAll}
+        />
 
         <div style={{ padding: '24px 22px 0' }}>
 
@@ -4400,7 +4878,7 @@ function PickerScreen({ all, onPick, onBack }) {
   const visited = new Set(Object.keys(all));
   const filtered = GARES.filter((g) => g.nom.toLowerCase().includes(q.toLowerCase()));
   return (
-    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: 'var(--paper-light)', overflow: 'hidden' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--paper-light)' }}>
       <div style={{ background: 'var(--ink)', color: 'var(--paper)', padding: '14px 20px',
         display: 'flex', alignItems: 'center', gap: 14 }}>
         <button onClick={onBack} style={{ color: 'var(--paper)', fontSize: 14 }}>← Retour</button>
