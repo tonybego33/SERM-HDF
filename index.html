@@ -2943,7 +2943,12 @@ let SECTIONS = [
     'Passage à niveau public',
     'TVP (traversée plain-pied)',
     'PASO (souterrain)',
-    'Passerelle gare'
+    'Passerelle'
+  ]},
+    { id: 'carac_franch_nature', label: "Nature de franchissement", type: 'choice', choices: [
+    'Ville/Ville',
+    'Quai/Quai',
+    'Autre (préciser)'
   ]}
 ]},
 
@@ -6918,7 +6923,7 @@ function App() {
       ['', ''],
       ['SOURCE', ''],
       ['Outil', "Saisie via l'app SERM HDF (HTML + Supabase). Cet Excel est généré à l'export."],
-      ['Contact', 'Tony BÉGO — AREP Programmation · SNCF G&C']
+      ['Contact', '']
     ];
     let rMode = 6;
     modeContent.forEach((line) => {
@@ -7872,7 +7877,6 @@ function App() {
           }}>SERM Hauts-de-France</h1>
           <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 24, lineHeight: 1.45 }}>
             Outil de relevé terrain — accès réservé à l'équipe projet.
-            Saisis le mot de passe communiqué par Tony pour continuer.
           </p>
           <input
             type="password"
@@ -7902,7 +7906,6 @@ function App() {
             Déverrouiller
           </button>
           <p style={{ fontSize: 10.5, color: 'var(--taupe)', marginTop: 18, lineHeight: 1.5 }}>
-            En cas d'oubli, contacte Tony Bégo (AREP Programmation).
           </p>
         </div>
       </div>
