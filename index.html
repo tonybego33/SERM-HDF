@@ -3507,8 +3507,9 @@ async function pushVisiteToSupa(v) { /* no-op : voir pushCritereToSupa */ }
 /* ============================================================
    PHOTOS — compression auto + upload
    ============================================================
-   Par défaut on compresse (2000px max, JPEG 85%) → divise le poids
-   par 5-10. Si opts.hd=true, on upload tel quel (archive originale).
+   Toutes les photos sont compressées (1600px max, JPEG 80%)
+   → divise le poids par 5-10. Pas de mode HD : on garde un
+   format léger uniforme pour fluidité terrain et stockage.
    ============================================================ */
 
 // Compresse une image côté navigateur (Canvas API, pas de dépendance).
@@ -3546,12 +3547,12 @@ async function compressImage(file, opts = {}) {
   });
 }
 
-async function uploadPhoto(gareName, critId, file, opts = {}) {
-  // Compresser par défaut, sauf si opts.hd === true
+async function uploadPhoto(gareName, critId, file) {
+  // Compression systématique (pas de mode HD)
   const originalSize = file.size;
   let toUpload = file;
   try {
-    if (!opts.hd) toUpload = await compressImage(file);
+    toUpload = await compressImage(file);
   } catch (e) { console.warn('Compression failed, uploading original:', e); }
 
   // ── Fallback offline : on stocke le BLOB dans IndexedDB (préservé même à la fermeture)
@@ -3563,13 +3564,13 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
         const blobId = `${gareName}__${critId}__${Date.now()}__${Math.random().toString(36).slice(2,8)}`
           .replace(/[^a-zA-Z0-9_-]/g, '_');
         await savePhotoBlob(blobId, toUpload, {
-          critId, gareName, hd: !!opts.hd, name: toUpload.name
+          critId, gareName, name: toUpload.name
         });
         return {
           blobId,                                  // ← référence IndexedDB persistante
           url: URL.createObjectURL(toUpload),       // ← URL object pour preview immédiate
           name: toUpload.name, local: true,
-          pending: !!supa, hd: !!opts.hd,
+          pending: !!supa,
           size: toUpload.size, originalSize,
           critId, gareName
         };
@@ -3582,7 +3583,7 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
       const r = new FileReader();
       r.onload = () => resolve({
         url: r.result, name: toUpload.name, local: true,
-        pending: !!supa, hd: !!opts.hd,
+        pending: !!supa,
         size: toUpload.size, originalSize,
         critId, gareName
       });
@@ -3601,8 +3602,7 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
     const ts = Date.now();
     const safe = toUpload.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-40);
     const slug = gareName.replace(/[^a-zA-Z0-9]/g, '_');
-    const hdTag = opts.hd ? '_HD' : '';
-    const path = `${slug}/${critId}${hdTag}_${ts}_${safe}`;
+    const path = `${slug}/${critId}_${ts}_${safe}`;
     const { error } = await supa.storage.from('photos').upload(path, toUpload, {
       contentType: toUpload.type, upsert: false
     });
@@ -3610,7 +3610,7 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
     const { data } = supa.storage.from('photos').getPublicUrl(path);
     return {
       url: data.publicUrl, path, name: toUpload.name,
-      hd: !!opts.hd, size: toUpload.size, originalSize
+      size: toUpload.size, originalSize
     };
   } catch (e) {
     console.warn('Upload failed, falling back offline:', e);
@@ -3671,7 +3671,7 @@ async function retryPendingPhotos(all, onProgress) {
             continue;
           }
 
-          const uploaded = await uploadPhoto(gareName, critId, file, { hd: p.hd });
+          const uploaded = await uploadPhoto(gareName, critId, file);
           if (uploaded.pending) {
             // Toujours offline → on garde
             newPhotos.push(p);
@@ -5089,7 +5089,6 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
   const collapsed = filled && !isActive;
   // Note libre toujours ouverte (sauf si en mode collapsed)
   const [uploading, setUploading] = useState(false);
-  const [hdMode, setHdMode] = useState(false);
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
@@ -5101,13 +5100,11 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
     let next = [...photos];
     for (const file of files) {
       try {
-        const photo = await uploadPhoto(gareName, c.id, file, { hd: hdMode });
+        const photo = await uploadPhoto(gareName, c.id, file);
         next = [...next, photo];
         onSetPhotos(next);
         const fmtSize = (b) => b > 1024*1024 ? `${(b/1024/1024).toFixed(1)} MB` : `${Math.round(b/1024)} KB`;
-        const msg = hdMode
-          ? `Photo HD ajoutée · ${fmtSize(photo.size)} ✓`
-          : `Photo ajoutée · ${fmtSize(photo.originalSize)} → ${fmtSize(photo.size)} ✓`;
+        const msg = `Photo ajoutée · ${fmtSize(photo.originalSize)} → ${fmtSize(photo.size)} ✓`;
         if (onToast) onToast(msg, 'success');
       } catch (err) {
         console.warn('Upload error:', err);
@@ -5268,17 +5265,6 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
             <path d="M2 9 L5 6 L8 8 L11 5 L12 6.5" stroke="currentColor" strokeWidth="1.2" fill="none" />
           </svg>
         </button>
-        <button onClick={() => setHdMode(m => !m)} disabled={uploading}
-          title={hdMode ? "Photos en qualité originale (HD)" : "Photos compressées (~5x plus légères)"}
-          style={{
-            padding: '4px 8px', minWidth: 40,
-            border: `1.5px solid ${hdMode ? 'var(--red)' : 'var(--border)'}`,
-            borderRadius: 4,
-            background: hdMode ? 'var(--red)' : 'var(--paper-light)',
-            color: hdMode ? 'white' : 'var(--taupe)',
-            fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
-            display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}>HD</button>
       </div>
       }
 
@@ -7551,7 +7537,6 @@ function App() {
       `Auteur : ${auteur}`,
       '',
       'STRUCTURE : Gare / Section / Question_NN.jpg',
-      '(_HD signale une photo en qualité originale)',
       '',
       '--- DETAIL ---'];
 
@@ -7568,10 +7553,9 @@ function App() {
             const p = photos[i];
             if (!p.url) continue;
             const num = String(i + 1).padStart(2, '0');
-            const hdTag = p.hd ? '_HD' : '';
             // Extension : déduite de p.url ou .jpg par défaut
             const ext = (p.url.match(/\.(jpe?g|png|webp|heic)(?:\?|$)/i)?.[1] || 'jpg').toLowerCase();
-            const path = `${gareSafe}/${secSafe}/${critSafe}_${num}${hdTag}.${ext}`;
+            const path = `${gareSafe}/${secSafe}/${critSafe}_${num}.${ext}`;
             try {
               const resp = await fetch(p.url);
               if (!resp.ok) throw new Error('HTTP ' + resp.status);
