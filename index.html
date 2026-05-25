@@ -132,6 +132,9 @@ html, body { height: 100%; overflow: hidden; }
 .network-map [id^="sg-lignes-ferroviaires"] path {
   transition: stroke .3s ease;
 }
+
+/* Animation rotation — utilisée par le bouton refresh du header gare */
+@keyframes sermSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -4625,7 +4628,7 @@ function PickerScreen({ all, onPick, onBack }) {
    FORM SCREEN — plan-first hybrid
    ============================================================ */
 
-function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
+function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast, onRefresh, syncing,
                       readOnly, gridRev }) {
   const sections = useMemo(
     () => SECTIONS.filter((s) => !s.skipIf || !s.skipIf(gare, visite.data)),
@@ -4763,6 +4766,24 @@ function FormScreen({ gare, visite, onUpdate, onBack, onOverview, onToast,
           ← <span className="kicker" style={{ fontSize: 10 }}>Carnet</span>
         </button>
         <div style={{ display: 'flex', gap: 6 }}>
+          {onRefresh &&
+          <button onClick={onRefresh} disabled={syncing} title="Actualiser depuis le serveur"
+            aria-label="Actualiser"
+            style={{
+              color: 'var(--paper)', padding: '5px 9px',
+              border: '1px solid rgba(245,242,235,0.2)', borderRadius: 2,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              opacity: syncing ? 0.55 : 1,
+              cursor: syncing ? 'wait' : 'pointer'
+            }}>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none"
+              style={{ animation: syncing ? 'sermSpin 0.9s linear infinite' : 'none' }}>
+              <path d="M13.5 2.5v3h-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M2.5 13.5v-3h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M12.5 5.5A5 5 0 0 0 3.7 7M3.5 10.5A5 5 0 0 0 12.3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          }
           <button onClick={onOverview} style={{ color: 'var(--paper)', fontSize: 11, padding: '5px 10px',
             border: '1px solid rgba(245,242,235,0.2)', borderRadius: 2,
             display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -6312,6 +6333,35 @@ function App() {
     });
     return () => { mounted = false; };
   }, [bumpGrid]);
+
+  // Refresh manuel (bouton ↻ dans le header gare) — utile sur mobile où
+  // on ne peut pas faire un vrai reload, et quand le realtime a perdu des
+  // events (mode dégradé, app en background, etc.)
+  const manualRefresh = useCallback(async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const fresh = await pullAllFromSupa();
+      if (fresh) {
+        setAll(() => {
+          // Même règle que le realtime : on préserve les modifs locales en cours
+          const merged = { ...fresh };
+          Object.keys(pendingState.current).forEach(gn => {
+            merged[gn] = pendingState.current[gn];
+          });
+          return merged;
+        });
+        showToast('↻ Actualisé', 'success');
+      } else {
+        showToast('Pas de connexion', 'error');
+      }
+    } catch (e) {
+      console.warn('Manual refresh failed:', e);
+      showToast('Échec actualisation', 'error');
+    } finally {
+      setSyncing(false);
+    }
+  }, [syncing]);
 
   // Real-time sync : refresh when teammates push changes
   useEffect(() => {
@@ -7971,6 +8021,8 @@ function App() {
         onBack={() => setRoute({ name: 'home' })}
         onOverview={() => setRoute({ name: 'overview', gareName: g.nom })}
         onToast={showToast}
+        onRefresh={manualRefresh}
+        syncing={syncing}
         readOnly={readOnly}
         gridRev={gridRev} />
       <Toast toast={toast} />
