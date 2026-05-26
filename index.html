@@ -6353,11 +6353,50 @@ function App() {
 
   // ── IndexedDB : reconstruit les blob URLs locales pour les photos pending
   // (les URLs object n'étant pas sérialisables, il faut les recréer après reload)
+  // ⚠ BUG FIX 27/05 v2 : utiliser setAll FONCTIONNEL pour ne pas écraser le state
+  // avec un snapshot obsolète (sinon Vétusté/Hub/etc disparaissent au mount).
   useEffect(() => {
     let cancelled = false;
-    restoreBlobUrls(all).then((restored) => {
-      if (cancelled || restored === all) return;
-      setAll({ ...restored });
+    // On passe loadAll() (snapshot frais) à restoreBlobUrls qui mute en place.
+    // Puis on merge ciblé : seulement les URLs blob des photos pending sont propagées.
+    restoreBlobUrls(loadAll()).then((restored) => {
+      if (cancelled || !restored) return;
+      setAll((current) => {
+        const merged = { ...current };
+        let anyChange = false;
+        Object.entries(restored).forEach(([gn, restoredVisite]) => {
+          const currentVisite = current[gn];
+          if (!currentVisite?.data || !restoredVisite?.data) return;
+          let visiteChanged = false;
+          const newData = { ...currentVisite.data };
+          Object.entries(restoredVisite.data).forEach(([critId, restoredVal]) => {
+            if (!restoredVal || typeof restoredVal !== 'object' || !Array.isArray(restoredVal.photos)) return;
+            const currentVal = currentVisite.data[critId];
+            if (!currentVal || typeof currentVal !== 'object' || !Array.isArray(currentVal.photos)) return;
+            // Update SEULEMENT les URLs des photos pending matched par blobId
+            let photosChanged = false;
+            const newPhotos = currentVal.photos.map(p => {
+              if (!p?.blobId) return p;
+              if (p.url && p.url.startsWith('blob:')) return p;
+              const restoredPhoto = restoredVal.photos.find(rp => rp?.blobId === p.blobId);
+              if (restoredPhoto?.url && restoredPhoto.url.startsWith('blob:')) {
+                photosChanged = true;
+                return { ...p, url: restoredPhoto.url };
+              }
+              return p;
+            });
+            if (photosChanged) {
+              newData[critId] = { ...currentVal, photos: newPhotos };
+              visiteChanged = true;
+            }
+          });
+          if (visiteChanged) {
+            merged[gn] = { ...currentVisite, data: newData };
+            anyChange = true;
+          }
+        });
+        return anyChange ? merged : current;
+      });
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line
@@ -6470,15 +6509,18 @@ function App() {
   // Refresh manuel (bouton ↻ dans le header gare) — utile sur mobile où
   // on ne peut pas faire un vrai reload, et quand le realtime a perdu des
   // events (mode dégradé, app en background, etc.)
+  // ⚠ BUG FIX 27/05 v2 : utiliser setAll((prev) => ...) pour préserver les gares
+  // locales qui n'existent pas encore côté serveur (push en cours, visite créée).
   const manualRefresh = useCallback(async () => {
     if (syncing) return;
     setSyncing(true);
     try {
       const fresh = await pullAllFromSupa();
       if (fresh) {
-        setAll(() => {
-          // Même règle que le realtime : on préserve les modifs locales en cours
-          const merged = { ...fresh };
+        setAll((prev) => {
+          // On préserve les gares locales (prev) puis on applique fresh par-dessus
+          // pour les gares présentes côté serveur. Le pendingState override en dernier.
+          const merged = { ...prev, ...fresh };
           Object.keys(pendingState.current).forEach(gn => {
             merged[gn] = pendingState.current[gn];
           });
