@@ -3842,21 +3842,36 @@ function serializeSections(secs) {
 }
 
 // Désérialiser : rétablir skipIf pour les sections système
+// ⚠ FIX 27/05 : fusionner intelligemment la grille Supabase (modifs Maram) avec les
+// évolutions du code (nouveaux critères, nouvelles sections). Sinon les ajouts code
+// (ex: synth_vetuste, parking3-5) ne s'affichent jamais car la grille Supabase les écrase.
 function hydrateSections(secs) {
-  return secs.map(s => {
-    const hydrated = SYSTEM_SKIPIF[s.id] ? {...s, skipIf: SYSTEM_SKIPIF[s.id]} : {...s};
+  const baseById = new Map(secs.map(s => [s.id, s]));
+  // On parcourt DEFAULT_SECTIONS (= source code, ordre correct) et on prend la version
+  // Supabase si elle existe, sinon la version code. Dans les deux cas on ajoute les
+  // critères du code absents de la base à la fin de la section.
+  return DEFAULT_SECTIONS.map(defaultSec => {
+    const baseSec = baseById.get(defaultSec.id);
+    let hydrated;
+    if (!baseSec) {
+      // Section du code absente de Supabase (ex: parking3/4/5 nouveaux) : on la prend telle quelle
+      hydrated = { ...defaultSec };
+    } else {
+      // Section présente en base : on prend la version base et on rétablit skipIf
+      hydrated = SYSTEM_SKIPIF[defaultSec.id]
+        ? { ...baseSec, skipIf: SYSTEM_SKIPIF[defaultSec.id] }
+        : { ...baseSec };
+    }
 
-    // Migration locale : garantit que la question "Défibrillateur" existe aussi dans l'onglet Quais,
-    // même si une ancienne grille Supabase est encore utilisée comme source.
-    if (hydrated.id === 'quais') {
-      const criteria = Array.isArray(hydrated.criteria) ? [...hydrated.criteria] : [];
-      if (!criteria.some(c => c.id === 'quai_defibrillateur')) {
-        const insertAfter = criteria.findIndex(c => c.id === 'quai_horloge');
-        const defibCrit = { id: 'quai_defibrillateur', label: "Défibrillateur", type: 'presence' };
-        if (insertAfter >= 0) criteria.splice(insertAfter + 1, 0, defibCrit);
-        else criteria.push(defibCrit);
+    // Migration générique : ajouter les critères du code absents de la version base
+    if (Array.isArray(defaultSec.criteria) && Array.isArray(hydrated.criteria)) {
+      const existingIds = new Set(hydrated.criteria.map(c => c?.id).filter(Boolean));
+      const missing = defaultSec.criteria.filter(c => c?.id && !existingIds.has(c.id));
+      if (missing.length > 0) {
+        hydrated.criteria = [...hydrated.criteria, ...missing];
       }
-      hydrated.criteria = criteria;
+    } else if (!Array.isArray(hydrated.criteria) && Array.isArray(defaultSec.criteria)) {
+      hydrated.criteria = [...defaultSec.criteria];
     }
 
     return hydrated;
