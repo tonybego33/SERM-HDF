@@ -2948,6 +2948,7 @@ let SECTIONS = [
     'PASO (souterrain)',
     'Passerelle'
   ]},
+  { id: 'carac_franch_nb', label: "Nombre de franchissements", help: "Plusieurs franchissements possibles (ex: 2 passerelles)", type: 'count' },
     { id: 'carac_franch_nature', label: "Nature de franchissement", type: 'choice', choices: [
     'Ville/Ville',
     'Quai/Quai',
@@ -2969,7 +2970,6 @@ let SECTIONS = [
   { id: 'parking_nb_pmr', label: "Places PSH", help: "Recommandé ≥ 2% du parc total", type: 'count' },
   { id: 'parking_nb_depose', label: "Places dépose-minute / Kiss&Ride", type: 'count' },
   { id: 'parking_nb_taxis', label: "Places taxis", type: 'count' },
-  { id: 'parking_nb_electriques', label: "Places électriques", type: 'count' },
   { id: 'parking_nb_recharge_ve', label: "Bornes de recharge VE", type: 'count' },
   { id: 'parking_covoit', label: "Aire de covoiturage identifiée", type: 'presence' },
   { id: 'parking_controle', label: "Contrôle d'accès (barrière, badge)", type: 'presence' },
@@ -2984,11 +2984,14 @@ let SECTIONS = [
 ]},
 
 /* ============================================================
-   3 BIS. PARKING N°2 — apparaît seulement si carac_parking_types
-   contient ≥ 2 choix non nuls (ex: urbain + étendu)
+   3 BIS. PARKING N°2 — apparaît si carac_parking_nb ≥ 2
+   (fallback : carac_parking_types contient ≥ 2 choix non nuls)
    ============================================================ */
 { system: true, id: 'parking2', n: 2.5, title: 'Parking n°2', short: 'Parking 2', icon: 'P²', subtitle: '2e parking détecté — affiner les caractéristiques propres', fluxPrefilled: true,
   skipIf: (g, d) => {
+    const nb = Number(getVal(d?.carac_parking_nb));
+    if (nb >= 2) return false;
+    if (nb >= 1 && !Number.isNaN(nb)) return true;
     const types = getVal(d?.carac_parking_types);
     if (!Array.isArray(types)) return true;
     const real = types.filter(t => t !== 'Pas de parking gare');
@@ -3005,7 +3008,6 @@ let SECTIONS = [
   { id: 'parking2_nb_pmr', label: "Places PSH", help: "Recommandé ≥ 2% du parc total", type: 'count' },
   { id: 'parking2_nb_depose', label: "Places dépose-minute / Kiss&Ride", type: 'count' },
   { id: 'parking2_nb_taxis', label: "Places taxis", type: 'count' },
-  { id: 'parking2_nb_electriques', label: "Places électriques", type: 'count' },
   { id: 'parking2_nb_recharge_ve', label: "Bornes de recharge VE", type: 'count' },
   { id: 'parking2_covoit', label: "Aire de covoiturage identifiée", type: 'presence' },
   { id: 'parking2_controle', label: "Contrôle d'accès (barrière, badge)", type: 'presence' },
@@ -3017,6 +3019,96 @@ let SECTIONS = [
   { id: 'parking2_sol_etat', label: "État du sol", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] },
   { id: 'parking2_tracage', label: "Traçage au sol (places matérialisées)", type: 'presence' },
   { id: 'parking2_etat', label: "État général", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] }
+]},
+
+/* PARKING N°3 — apparaît si carac_parking_nb ≥ 3 */
+{ system: true, id: 'parking3', n: 2.6, title: 'Parking n°3', short: 'Parking 3', icon: 'P³', subtitle: '3e parking détecté', fluxPrefilled: true,
+  skipIf: (g, d) => {
+    const nb = Number(getVal(d?.carac_parking_nb));
+    return !(nb >= 3);
+  },
+  criteria: [
+  { id: 'parking3_type_label', label: "Quel type pour ce 3e parking ?", type: 'choice', choices: [
+    'Stationnement urbain à proximité',
+    'Parking gare dédié',
+    'Parking étendu (P+R / parc relais)',
+    'Stationnement informel'
+  ]},
+  { id: 'parking3_nb_total', label: "Nombre total de places", type: 'count' },
+  { id: 'parking3_nb_pmr', label: "Places PSH", help: "Recommandé ≥ 2% du parc total", type: 'count' },
+  { id: 'parking3_nb_depose', label: "Places dépose-minute / Kiss&Ride", type: 'count' },
+  { id: 'parking3_nb_taxis', label: "Places taxis", type: 'count' },
+  { id: 'parking3_nb_recharge_ve', label: "Bornes de recharge VE", type: 'count' },
+  { id: 'parking3_covoit', label: "Aire de covoiturage identifiée", type: 'presence' },
+  { id: 'parking3_controle', label: "Contrôle d'accès (barrière, badge)", type: 'presence' },
+  { id: 'parking3_eclairage', label: "Éclairage du parking", type: 'presence' },
+  { id: 'parking3_sol_permeable', label: "Type de sol", type: 'choice', choices: [
+    'Perméable (gravier, terre, dallage drainant…)',
+    'Imperméable (enrobé, béton…)'
+  ]},
+  { id: 'parking3_sol_etat', label: "État du sol", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] },
+  { id: 'parking3_tracage', label: "Traçage au sol (places matérialisées)", type: 'presence' },
+  { id: 'parking3_etat', label: "État général", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] }
+]},
+
+/* PARKING N°4 — apparaît si carac_parking_nb ≥ 4 */
+{ system: true, id: 'parking4', n: 2.7, title: 'Parking n°4', short: 'Parking 4', icon: 'P⁴', subtitle: '4e parking détecté', fluxPrefilled: true,
+  skipIf: (g, d) => {
+    const nb = Number(getVal(d?.carac_parking_nb));
+    return !(nb >= 4);
+  },
+  criteria: [
+  { id: 'parking4_type_label', label: "Quel type pour ce 4e parking ?", type: 'choice', choices: [
+    'Stationnement urbain à proximité',
+    'Parking gare dédié',
+    'Parking étendu (P+R / parc relais)',
+    'Stationnement informel'
+  ]},
+  { id: 'parking4_nb_total', label: "Nombre total de places", type: 'count' },
+  { id: 'parking4_nb_pmr', label: "Places PSH", help: "Recommandé ≥ 2% du parc total", type: 'count' },
+  { id: 'parking4_nb_depose', label: "Places dépose-minute / Kiss&Ride", type: 'count' },
+  { id: 'parking4_nb_taxis', label: "Places taxis", type: 'count' },
+  { id: 'parking4_nb_recharge_ve', label: "Bornes de recharge VE", type: 'count' },
+  { id: 'parking4_covoit', label: "Aire de covoiturage identifiée", type: 'presence' },
+  { id: 'parking4_controle', label: "Contrôle d'accès (barrière, badge)", type: 'presence' },
+  { id: 'parking4_eclairage', label: "Éclairage du parking", type: 'presence' },
+  { id: 'parking4_sol_permeable', label: "Type de sol", type: 'choice', choices: [
+    'Perméable (gravier, terre, dallage drainant…)',
+    'Imperméable (enrobé, béton…)'
+  ]},
+  { id: 'parking4_sol_etat', label: "État du sol", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] },
+  { id: 'parking4_tracage', label: "Traçage au sol (places matérialisées)", type: 'presence' },
+  { id: 'parking4_etat', label: "État général", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] }
+]},
+
+/* PARKING N°5 — apparaît si carac_parking_nb ≥ 5 */
+{ system: true, id: 'parking5', n: 2.8, title: 'Parking n°5', short: 'Parking 5', icon: 'P⁵', subtitle: '5e parking détecté', fluxPrefilled: true,
+  skipIf: (g, d) => {
+    const nb = Number(getVal(d?.carac_parking_nb));
+    return !(nb >= 5);
+  },
+  criteria: [
+  { id: 'parking5_type_label', label: "Quel type pour ce 5e parking ?", type: 'choice', choices: [
+    'Stationnement urbain à proximité',
+    'Parking gare dédié',
+    'Parking étendu (P+R / parc relais)',
+    'Stationnement informel'
+  ]},
+  { id: 'parking5_nb_total', label: "Nombre total de places", type: 'count' },
+  { id: 'parking5_nb_pmr', label: "Places PSH", help: "Recommandé ≥ 2% du parc total", type: 'count' },
+  { id: 'parking5_nb_depose', label: "Places dépose-minute / Kiss&Ride", type: 'count' },
+  { id: 'parking5_nb_taxis', label: "Places taxis", type: 'count' },
+  { id: 'parking5_nb_recharge_ve', label: "Bornes de recharge VE", type: 'count' },
+  { id: 'parking5_covoit', label: "Aire de covoiturage identifiée", type: 'presence' },
+  { id: 'parking5_controle', label: "Contrôle d'accès (barrière, badge)", type: 'presence' },
+  { id: 'parking5_eclairage', label: "Éclairage du parking", type: 'presence' },
+  { id: 'parking5_sol_permeable', label: "Type de sol", type: 'choice', choices: [
+    'Perméable (gravier, terre, dallage drainant…)',
+    'Imperméable (enrobé, béton…)'
+  ]},
+  { id: 'parking5_sol_etat', label: "État du sol", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] },
+  { id: 'parking5_tracage', label: "Traçage au sol (places matérialisées)", type: 'presence' },
+  { id: 'parking5_etat', label: "État général", type: 'rating', scale: 4, labels: ['N/A', 'Mauvais', 'Moyen', 'Bon'] }
 ]},
 
 /* ============================================================
@@ -3175,12 +3267,12 @@ let SECTIONS = [
    9. QUAIS — refonte Maram (le gros morceau)
    ============================================================ */
 { system: true, id: 'quais', n: 8, title: 'Quais', short: 'Quais', icon: '═', subtitle: 'Le terminus du parcours', criteria: [
-  { id: 'quai_type', label: "Hauteur de quai dominant", type: 'choice', choices: ['Quai absent / bande de terre', 'Quai bas', 'Quai haut', 'Mixte (haut et bas)'] },
+  { id: 'quai_type', label: "Hauteur de quai dominant", type: 'choice', choices: ['Quai absent / bande de terre', 'Quai bas', 'Quai mi-haut', 'Quai haut', 'Mixte (haut et bas)'] },
   { id: 'quai_etat', label: "État général des quais", type: 'rating', scale: 4, labels: ['Absent', 'Mauvais', 'Moyen', 'Bon'] },
   { id: 'quai_longueur_ok', label: "Longueur adaptée au matériel roulant", help: "À évaluer uniquement si train présent au moment de la visite. Sinon laisser vide.", type: 'presence' },
   { id: 'quai_candelabres', label: "Éclairage présent sur toute la longueur des quais", help: "Candélabres / mâts d'éclairage couvrant l'intégralité du quai", type: 'presence' },
   { id: 'quai_eclairage', label: "Éclairage des quais", help: "⚠ Difficile à juger en journée — relever simplement la présence", type: 'presence' },
-  { id: 'quai_poubelles', label: "Poubelles", help: "Type de flux présent sur les quais", type: 'choice', choices: ['Absent', 'Simple flux', 'Double flux', 'Triple flux'] },
+  { id: 'quai_poubelles', label: "Poubelles", help: "Présence + nombre + état", type: 'pne' },
   { id: 'quai_abris', label: "Abris quais", type: 'pne' },
   { id: 'quai_assises', label: "Assises / bancs", type: 'pne' },
   { id: 'quai_ecran_iv_trains', label: "Écrans IV trains", type: 'count' },
@@ -3254,7 +3346,9 @@ let SECTIONS = [
   { _subhead: 'Ressenti global', id: '_synth_h_alertes', label: 'Ressenti global', type: 'subhead' },
   { id: 'priorite_terrain', label: "Priorité d'intervention perçue", help: "Ressenti global après visite", type: 'rating', scale: 4, labels: ['Critique', 'Élevée', 'Modérée', 'Faible'] },
   { id: 'alerte_saturation', label: "Alerte saturation / capacitaire", help: "Quai trop étroit, flux > capacité aux HP", type: 'presence' },
-  { id: 'alerte_secu', label: "Alerte sécurité", help: "TVP dangereuse, évacuation non-conforme…", type: 'presence' }
+  { id: 'alerte_secu', label: "Alerte sécurité", help: "TVP dangereuse, évacuation non-conforme…", type: 'presence' },
+  { id: 'synth_vetuste', label: "Vétusté / Problèmes constatés", help: "À détailler en note libre : équipements dégradés, peintures, infiltrations, etc.", type: 'presence' },
+  { id: 'synth_autres', label: "Autres éléments intéressants", help: "À détailler en note libre : remarques diverses non couvertes ailleurs", type: 'presence' }
 ]}
 
 ];
@@ -5085,8 +5179,9 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
   const photos = getPhotos(raw);
   const filled = isFilled(c, raw);
   const isNA = raw && typeof raw === 'object' && raw.na === true;
-  // Repli auto : si la question est répondue (ou N/A) ET qu'elle n'est pas active, on affiche compact
-  const collapsed = filled && !isActive;
+  // Repli auto DÉSACTIVÉ (demande Tony 26/05) : toutes les questions restent
+  // ouvertes en permanence, plus aucune ne se replie automatiquement.
+  const collapsed = false;
   // Note libre toujours ouverte (sauf si en mode collapsed)
   const [uploading, setUploading] = useState(false);
   const cameraInputRef = useRef(null);
@@ -5215,11 +5310,6 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
             color: c.tag === 'amont' ? 'var(--ink-soft)' : 'var(--bureau)',
             border: `1px solid ${c.tag === 'amont' ? 'var(--taupe-light)' : 'var(--bureau)'}`
           }}>{c.tag}</span>
-          }
-          {filled && !locked &&
-          <button onClick={onClear} title="Effacer" style={{
-            fontSize: 10, color: 'var(--taupe)', padding: '2px 5px', opacity: 0.7
-          }}>↺</button>
           }
         </div>
       </div>
@@ -6277,20 +6367,60 @@ function App() {
   }, [all]);
 
   // Retry automatique des photos pending au retour online
+  // ⚠ BUG FIX (27/05) : utilisation de setAll FONCTIONNEL pour éviter d'écraser
+  // le state avec une version obsolète (race condition : pull initial + retry parallèles).
+  // Ancien comportement : setAll(newAll) où newAll était basé sur le `all` capturé au
+  // début du retry → si un pull/realtime avait setAll entre temps, tout était perdu.
+  // Nouveau : merge ciblé par critère, et push direct sans passer par debouncedPush
+  // (qui posait un verrou pendingState pour TOUTES les gares = blocage du realtime).
   useEffect(() => {
     if (!isOnline || readOnly || pendingCount === 0 || retryingPhotos) return;
     let cancelled = false;
     setRetryingPhotos({ done: 0, total: pendingCount });
+    const allAtStart = all; // snapshot pour comparaison
     retryPendingPhotos(all, (done, total) => {
       if (!cancelled) setRetryingPhotos({ done, total });
     }).then((newAll) => {
       if (cancelled) return;
-      if (newAll !== all) {
-        setAll(newAll);
-        // Push à Supabase pour persister les nouvelles URLs des photos
-        Object.values(newAll).forEach(v => debouncedPush(v));
-        showToast(`${pendingCount} photo(s) envoyée(s) ✓`, 'success');
-      }
+      if (newAll === allAtStart) { setRetryingPhotos(null); return; }
+      // Identifier les critères dont les photos ont effectivement changé
+      const changedCriteres = []; // [{ gare, critId, retryVal }]
+      Object.entries(newAll).forEach(([gn, retryVisite]) => {
+        if (!retryVisite?.data) return;
+        Object.entries(retryVisite.data).forEach(([critId, retryVal]) => {
+          if (!retryVal || typeof retryVal !== 'object' || !Array.isArray(retryVal.photos)) return;
+          const originalVal = allAtStart[gn]?.data?.[critId];
+          const originalPhotos = (originalVal && typeof originalVal === 'object' && Array.isArray(originalVal.photos)) ? originalVal.photos : [];
+          if (JSON.stringify(originalPhotos) === JSON.stringify(retryVal.photos)) return;
+          changedCriteres.push({ gn, critId, retryVal });
+        });
+      });
+      if (changedCriteres.length === 0) { setRetryingPhotos(null); return; }
+      // Merge intelligent : on update SEULEMENT les photos des critères qui ont changé,
+      // en se basant sur le state ACTUEL (pas sur allAtStart obsolète).
+      setAll((current) => {
+        const merged = { ...current };
+        changedCriteres.forEach(({ gn, critId, retryVal }) => {
+          const currentVisite = current[gn];
+          if (!currentVisite || !currentVisite.data) return; // gare disparue : on ignore
+          const currentVal = currentVisite.data[critId];
+          const baseObj = (currentVal && typeof currentVal === 'object' && !Array.isArray(currentVal))
+            ? currentVal
+            : (currentVal !== undefined ? { val: currentVal } : {});
+          const newData = { ...currentVisite.data, [critId]: { ...baseObj, photos: retryVal.photos } };
+          merged[gn] = { ...currentVisite, data: newData };
+        });
+        return merged;
+      });
+      // Push DIRECT et CIBLÉ : seulement les critères dont les photos ont changé.
+      // Pas de debouncedPush global qui poserait des verrous pendingState pour toutes les gares.
+      const me = auteur || (typeof localStorage !== 'undefined' ? localStorage.getItem('serm-auteur') : null) || 'Anonyme';
+      changedCriteres.forEach(({ gn, critId, retryVal }) => {
+        // On push la valeur du critère telle qu'elle est en local APRÈS retry
+        // (avec les nouvelles URLs des photos uploadées)
+        pushCritereToSupa(gn, critId, retryVal, me);
+      });
+      showToast(`${changedCriteres.length} photo(s) envoyée(s) ✓`, 'success');
       setRetryingPhotos(null);
     }).catch(() => { if (!cancelled) setRetryingPhotos(null); });
     return () => { cancelled = true; };
@@ -6306,8 +6436,10 @@ function App() {
       if (fresh) {
         // Au pull initial, on respecte pendingState au cas où l'utilisateur
         // aurait déjà modifié quelque chose (rare mais possible si pull lent)
+        // BUG FIX (27/05) : on part de prev (pas {}) pour PRÉSERVER les gares
+        // locales qui n'existeraient pas (encore) côté serveur.
         setAll((prev) => {
-          const merged = { ...fresh };
+          const merged = { ...prev, ...fresh };
           Object.keys(pendingState.current).forEach(gn => {
             merged[gn] = pendingState.current[gn];
           });
@@ -6360,7 +6492,11 @@ function App() {
         // fiables (ils changent à chaque keystroke), et c'est précisément ce
         // qu'on essaie de protéger contre l'écho realtime qui pourrait les
         // écraser.
-        const merged = { ...fresh };
+        // BUG FIX (27/05) : on part de prev (pas {}) pour PRÉSERVER les gares
+        // locales qui n'existeraient pas (encore) côté serveur (ex: visite tout
+        // juste créée, ou modifs en pending). Puis on applique fresh par-dessus
+        // pour chaque gare présente côté serveur. Puis pendingState override.
+        const merged = { ...prev, ...fresh };
         Object.keys(pendingState.current).forEach(gn => {
           merged[gn] = pendingState.current[gn];
         });
