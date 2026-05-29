@@ -1,6 +1,5 @@
 <!DOCTYPE html><html lang="fr"><head>
 
-
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#C8102E">
@@ -5954,7 +5953,7 @@ function OverviewScreen({ gare, visite, onBack, onZone, onExport, onPrintPDF, on
 /* ============================================================
    EXPORT SCREEN — choix scope (toutes / cette gare / sélection) × format (CSV / Excel / JSON)
    ============================================================ */
-function ExportScreen({ all, onBack, onExport, onExportPhotos, onPrintPDF, onExportPPTX, syncing }) {
+function ExportScreen({ all, onBack, onExport, onExportPhotos, onExportPDFsZip, onPrintPDF, onExportPPTX, syncing }) {
   const visitesAll = Object.values(all).sort((a, b) => b.updated - a.updated);
   const [scope, setScope] = useState('all'); // 'all' | 'select' | 'completed' | 'in_progress'
   const [format, setFormat] = useState('xlsx'); // 'xlsx' | 'csv' | 'json'
@@ -6199,6 +6198,27 @@ function ExportScreen({ all, onBack, onExport, onExportPhotos, onPrintPDF, onExp
               Pour chaque gare : tableau récap par section + photothèque rangée par question.
               Format A4 portrait, prêt à imprimer ou enregistrer en PDF.
             </p>
+
+            {/* Bouton : toutes les fiches A4 sélectionnées dans un seul ZIP */}
+            {onExportPDFsZip && visitesToExport.length > 0 && (
+              <button onClick={() => onExportPDFsZip(visitesToExport)} disabled={syncing}
+                style={{
+                  width: '100%', padding: '12px 14px', marginBottom: 14,
+                  background: 'var(--red)', color: 'white', borderRadius: 3,
+                  fontSize: 13, fontWeight: 700, letterSpacing: '0.01em',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  opacity: syncing ? 0.6 : 1, cursor: syncing ? 'wait' : 'pointer'
+                }}>
+                <span>📦 Télécharger {visitesToExport.length} fiche{visitesToExport.length > 1 ? 's' : ''} A4 en ZIP</span>
+              </button>
+            )}
+            <p style={{ fontSize: 10.5, color: 'var(--taupe)', marginTop: -6, marginBottom: 14, lineHeight: 1.4 }}>
+              Le ZIP respecte la sélection ci-dessus (Toutes / Validées / En cours / Sélection).
+              Un PDF par gare. Pour beaucoup de gares, ça peut prendre 1-2 min.
+            </p>
+            <div style={{ fontSize: 11, color: 'var(--taupe)', fontWeight: 600, marginBottom: 8 }}>
+              — ou génère une gare à la fois :
+            </div>
             {visitesAll.length === 0 ? (
               <div style={{ fontSize: 12, color: 'var(--taupe)', fontStyle: 'italic',
                 padding: '12px', textAlign: 'center', background: 'var(--paper-deep)' }}>
@@ -7739,14 +7759,27 @@ function App() {
     if (!window.JSZip) { showToast('Bibliothèque ZIP non chargée — recharge la page', 'error'); return; }
     // Sanitize : retire caractères interdits dans les noms de fichiers
     const sanit = (s) => String(s).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
-    // Compter total
-    let totalPhotos = 0;
+    // Construire la liste plate de toutes les photos à télécharger
+    const photoJobs = []; // { path, url }
     visites.forEach(v => {
       if (!v.data) return;
-      SECTIONS.forEach(s => (s.criteria || []).forEach(c => {
-        totalPhotos += getPhotos(v.data[c.id]).length;
-      }));
+      const gareSafe = sanit(v.gare);
+      SECTIONS.forEach(s => {
+        const secSafe = sanit(s.title);
+        (s.criteria || []).forEach(c => {
+          const photos = getPhotos(v.data[c.id]);
+          if (photos.length === 0) return;
+          const critSafe = sanit(c.label);
+          photos.forEach((p, i) => {
+            if (!p.url) return;
+            const num = String(i + 1).padStart(2, '0');
+            const ext = (p.url.match(/\.(jpe?g|png|webp|heic)(?:\?|$)/i)?.[1] || 'jpg').toLowerCase();
+            photoJobs.push({ path: `${gareSafe}/${secSafe}/${critSafe}_${num}.${ext}`, url: p.url });
+          });
+        });
+      });
     });
+    const totalPhotos = photoJobs.length;
     if (totalPhotos === 0) { showToast('Aucune photo à exporter', 'error'); return; }
 
     setSyncing(true);
@@ -7761,37 +7794,33 @@ function App() {
       '',
       '--- DETAIL ---'];
 
-    for (const v of visites) {
-      if (!v.data) continue;
-      const gareSafe = sanit(v.gare);
-      for (const s of SECTIONS) {
-        const secSafe = sanit(s.title);
-        for (const c of (s.criteria || [])) {
-          const photos = getPhotos(v.data[c.id]);
-          if (photos.length === 0) continue;
-          const critSafe = sanit(c.label);
-          for (let i = 0; i < photos.length; i++) {
-            const p = photos[i];
-            if (!p.url) continue;
-            const num = String(i + 1).padStart(2, '0');
-            // Extension : déduite de p.url ou .jpg par défaut
-            const ext = (p.url.match(/\.(jpe?g|png|webp|heic)(?:\?|$)/i)?.[1] || 'jpg').toLowerCase();
-            const path = `${gareSafe}/${secSafe}/${critSafe}_${num}.${ext}`;
-            try {
-              const resp = await fetch(p.url);
-              if (!resp.ok) throw new Error('HTTP ' + resp.status);
-              const blob = await resp.blob();
-              zip.file(path, blob);
-              manifest.push(`✓ ${path}`);
-              fetched++;
-            } catch (e) {
-              console.warn('Photo fetch failed:', p.url, e);
-              manifest.push(`✗ ${path}  [ÉCHEC]`);
-              errors++;
-            }
-          }
+    // ⚡ FIX : téléchargement par LOTS PARALLÈLES (8 à la fois) au lieu de séquentiel.
+    // Diminue drastiquement le temps total (le réseau est le goulot, pas le CPU).
+    const BATCH = 8;
+    for (let i = 0; i < photoJobs.length; i += BATCH) {
+      const batch = photoJobs.slice(i, i + BATCH);
+      const results = await Promise.all(batch.map(async (job) => {
+        try {
+          const resp = await fetch(job.url);
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          const blob = await resp.blob();
+          return { job, blob, ok: true };
+        } catch (e) {
+          console.warn('Photo fetch failed:', job.url, e);
+          return { job, ok: false };
         }
-      }
+      }));
+      results.forEach(r => {
+        if (r.ok) {
+          zip.file(r.job.path, r.blob);
+          manifest.push(`✓ ${r.job.path}`);
+          fetched++;
+        } else {
+          manifest.push(`✗ ${r.job.path}  [ÉCHEC]`);
+          errors++;
+        }
+      });
+      showToast(`Photos : ${fetched + errors}/${totalPhotos}…`);
     }
 
     if (fetched === 0) {
@@ -7803,7 +7832,11 @@ function App() {
     manifest.push('', `--- RECAP ---`, `${fetched} photo(s) téléchargée(s)`, errors > 0 ? `${errors} échec(s)` : '');
     zip.file('_README.txt', manifest.join('\n'));
 
-    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+    showToast('Compression du ZIP…');
+    // ⚡ FIX : compression STORE (pas DEFLATE). Les JPEG sont DÉJÀ compressés,
+    // donc DEFLATE niveau 6 ne gagne ~rien mais coûte un temps CPU énorme
+    // (cause principale du freeze sur ~700 photos). STORE = quasi instantané.
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
     const today = new Date().toISOString().slice(0, 10);
     downloadBlob(blob, `photos_SERM_HDF_${today}.zip`);
     showToast(`Photothèque ZIP : ${fetched} photo${fetched > 1 ? 's' : ''}${errors > 0 ? ` (${errors} échec)` : ''} ✓`, 'success');
@@ -7870,12 +7903,12 @@ function App() {
 
   const [pdfStatus, setPdfStatus] = useState(null); // { stage, current, total } | null
 
-  const buildPDFForGare = async (gare, visite) => {
+  const buildPDFForGare = async (gare, visite, returnBlob = false) => {
     if (!window.jspdf || !window.jspdf.jsPDF) {
       showToast('Bibliothèque PDF non chargée — recharge la page', 'error');
       return;
     }
-    setPdfStatus({ stage: 'Génération du PDF…', current: 0, total: 1 });
+    if (!returnBlob) setPdfStatus({ stage: 'Génération du PDF…', current: 0, total: 1 });
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -8011,24 +8044,19 @@ function App() {
 
       setPdfStatus({ stage: 'Téléchargement des photos…', current: 0, total: allPhotos.length });
 
-      // Fetch en parallèle par batch de 4 pour ne pas saturer
-      // Pas de resize : on garde la photo originale ET on lit ses dimensions
-      // pour préserver son ratio d'aspect dans le PDF (object-fit: contain).
+      // Fetch en parallèle par batch de 4 pour ne pas saturer.
+      // ⚡ FIX : on REDIMENSIONNE chaque photo à 1000px max (JPEG 72%) avant de
+      // l'intégrer au PDF. En pleine résolution, ~30 photos saturaient la RAM et
+      // faisaient freezer/crasher l'onglet. À 1000px la qualité reste nickel pour
+      // un affichage A4 en vignette 3 colonnes, et la mémoire est divisée par ~8.
       const BATCH = 4;
       const processed = [];
       for (let i = 0; i < allPhotos.length; i += BATCH) {
         const batch = allPhotos.slice(i, i + BATCH);
         const results = await Promise.all(batch.map(async (ph) => {
           try {
-            const dataUrl = await urlToBase64(ph.p.url);
-            // Récupérer les dimensions réelles de la photo
-            const dims = await new Promise((res, rej) => {
-              const img = new Image();
-              img.onload = () => res({ w: img.width, h: img.height });
-              img.onerror = rej;
-              img.src = dataUrl;
-            });
-            return { ...ph, dataUrl, w: dims.w, h: dims.h };
+            const r = await resizeForPDF(ph.p.url, 1000);
+            return { ...ph, dataUrl: r.dataUrl, w: r.w, h: r.h };
           } catch (e) { return { ...ph, dataUrl: null }; }
         }));
         processed.push(...results);
@@ -8102,9 +8130,51 @@ function App() {
     // ── SAVE ──
     const safeName = gare.nom.replace(/[^a-zA-Z0-9-]/g, '_');
     const today = new Date().toISOString().slice(0, 10);
+    if (returnBlob) {
+      // Mode ZIP : on renvoie le blob + un nom de fichier, sans télécharger ni toast
+      return { blob: doc.output('blob'), filename: `SERM_${safeName}_${today}.pdf` };
+    }
     doc.save(`SERM_${safeName}_${today}.pdf`);
     setPdfStatus(null);
     showToast(`PDF généré : ${gare.nom} ✓`, 'success');
+  };
+
+  /* ===== EXPORT MULTI-PDF EN ZIP (un PDF A4 par gare) ===== */
+  const exportPDFsZip = async (visites) => {
+    if (!window.jspdf || !window.jspdf.jsPDF) { showToast('Bibliothèque PDF non chargée — recharge la page', 'error'); return; }
+    if (!window.JSZip) { showToast('Bibliothèque ZIP non chargée — recharge la page', 'error'); return; }
+    const list = (visites || []).filter(v => v && v.data);
+    if (list.length === 0) { showToast('Aucune visite à exporter', 'error'); return; }
+
+    setSyncing(true);
+    const zip = new window.JSZip();
+    let done = 0, errors = 0;
+    for (const v of list) {
+      const g = GARES.find(x => x.nom === v.gare);
+      if (!g) { errors++; continue; }
+      setPdfStatus({ stage: `Fiche ${done + 1}/${list.length} — ${v.gare}`, current: done, total: list.length });
+      try {
+        const res = await buildPDFForGare(g, v, true); // returnBlob = true
+        if (res && res.blob) {
+          zip.file(res.filename, res.blob);
+          done++;
+        } else { errors++; }
+      } catch (e) {
+        console.warn('PDF gare failed:', v.gare, e);
+        errors++;
+      }
+    }
+
+    if (done === 0) { showToast('Échec génération des PDF', 'error'); setPdfStatus(null); setSyncing(false); return; }
+
+    setPdfStatus({ stage: 'Compression du ZIP…', current: list.length, total: list.length });
+    // STORE : les PDF contiennent déjà des JPEG compressés, pas besoin de re-compresser
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+    const today = new Date().toISOString().slice(0, 10);
+    downloadBlob(blob, `fiches_A4_SERM_HDF_${today}.zip`);
+    setPdfStatus(null);
+    showToast(`ZIP fiches A4 : ${done} fiche${done > 1 ? 's' : ''}${errors > 0 ? ` (${errors} échec)` : ''} ✓`, 'success');
+    setSyncing(false);
   };
 
   // ===== ÉCRAN DE VERROUILLAGE — rendu après tous les hooks =====
@@ -8192,6 +8262,7 @@ function App() {
         onBack={() => setRoute({ name: 'home' })}
         onExport={(visites, format, name) => exportData(visites, format, name)}
         onExportPhotos={exportPhotosZip}
+        onExportPDFsZip={exportPDFsZip}
         onPrintPDF={(gareName) => {
           const g = GARES.find(x => x.nom === gareName);
           const v = all[gareName];
