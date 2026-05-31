@@ -16,7 +16,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500&amp;family=Newsreader:opsz,wght@6..72,400;6..72,600;6..72,700&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
 <style>
 :root {
   --font-sans: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -88,39 +88,6 @@ html, body { height: 100%; overflow: hidden; }
    ============================================================ */
 .network-map svg { display: block; }
 
-/* Le cercle unifié de chaque gare */
-.network-map circle.nm-uni {
-  vector-effect: non-scaling-stroke;
-}
-
-/* WIP - pulsation rouge */
-@keyframes nmWipPulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.45; }
-}
-.network-map .nm-gare-wip circle.nm-uni {
-  animation: nmWipPulse 1.6s ease-in-out infinite;
-  filter: drop-shadow(0 0 3px rgba(200,16,46,0.55));
-}
-
-/* DONE - bloom vert subtil */
-.network-map .nm-gare-done circle.nm-uni {
-  filter: drop-shadow(0 0 2px rgba(29,94,58,0.45));
-}
-
-/* Halo radar autour des WIP - second cercle invisible avec ring qui s'agrandit */
-@keyframes nmRadar {
-  0%   { r: 14; opacity: 0.45; }
-  100% { r: 38; opacity: 0;    }
-}
-.network-map circle.nm-radar {
-  fill: none;
-  stroke: #C8102E;
-  stroke-width: 1.5;
-  animation: nmRadar 2s ease-out infinite;
-  pointer-events: none;
-}
-
 /* Sweep diagonal subtle sur la carte - désactivé (trop bruyant) */
 .network-map::after { content: none; }
 
@@ -167,81 +134,45 @@ html, body { height: 100%; overflow: hidden; }
   100% { transform: scaleY(1); opacity: 0; }
 }
 .gareo-fillbar { animation: gareoFillBar .85s cubic-bezier(.4,0,.2,1); }
-/* Halo radar du nœud GARÉo (écran d'accès) */
-@keyframes gareoRadar {
-  0% { transform: translate(-50%,-50%) scale(1); opacity: 0.5; }
-  70% { opacity: 0; }
-  100% { transform: translate(-50%,-50%) scale(2.6); opacity: 0; }
-}
 /* Remplissage fluide de la barre de progression de section */
 .gareo-secbar > i { display: block; height: 100%;
   transition: width .4s cubic-bezier(.4,0,.2,1), background-color .3s ease; }
 
-/* GARÉo splash (écran d'accès) — entrée + rail ferroviaire + train qui passe */
-@keyframes gareoIntro { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-@keyframes gareoRailDraw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-/* GARÉo splash — le train ARRIVE et se gare au nœud-station, qui émet un ping */
-@keyframes gareoArrive {
-  0%   { left: -8%;  opacity: 0; }
-  8%   { opacity: 1; }
-  46%  { left: calc(100% - 13px); opacity: 1; }  /* accoste au nœud */
-  68%  { left: calc(100% - 13px); opacity: 1; }  /* arrêt en gare */
-  82%  { left: 104%; opacity: 1; }               /* repart */
-  84%, 100% { left: 104%; opacity: 0; }
-}
-@keyframes gareoPing {
-  0%, 43% { transform: scale(.4); opacity: 0; }
-  47%     { transform: scale(.6); opacity: .7; }
-  72%     { transform: scale(3); opacity: 0; }
-  100%    { transform: scale(3); opacity: 0; }
-}
-.gareo-splash { animation: gareoIntro .55s cubic-bezier(.4,0,.2,1) both; }
-.gareo-rail {
-  position: absolute; left: 0; right: 0; bottom: 3px; height: 2px;
-  background: linear-gradient(90deg, transparent, var(--red) 14%, var(--red) 86%, transparent);
-  transform-origin: left; opacity: 0.5;
-  animation: gareoRailDraw .7s cubic-bezier(.4,0,.2,1) .25s both;
-}
-.gareo-train {
-  position: absolute; bottom: 0; width: 9px; height: 9px; border-radius: 50%;
-  background: var(--red); box-shadow: 0 0 10px var(--red);
-  animation: gareoArrive 4.6s cubic-bezier(.3,.55,.2,1) .6s infinite;
-}
-.gareo-ping {
-  position: absolute; left: calc(100% - 13px); bottom: -1px;
-  width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--red);
-  transform-origin: center; pointer-events: none;
-  animation: gareoPing 4.6s ease-out .6s infinite;
-}
-/* Logo masthead — beacon de gare : ping net avec pause + point qui respire */
-@keyframes gareoBeacon {
-  0%   { transform: translate(-50%,-50%) scale(.45); opacity: .85; }
-  50%  { transform: translate(-50%,-50%) scale(2.6); opacity: 0; }
-  100% { transform: translate(-50%,-50%) scale(2.6); opacity: 0; }
-}
-@keyframes gareoBreath {
-  0%, 100% { transform: scale(1); }
-  50%      { transform: scale(1.16); }
-}
-.gareo-node-dot { animation: gareoBreath 2.8s ease-in-out infinite; }
-/* Pulse parfaitement centré autour du point GARÉo */
-@keyframes gareoPulseRing {
-  0%   { transform: translate(-50%,-50%) scale(.6); opacity: .6; }
-  70%  { transform: translate(-50%,-50%) scale(2.3); opacity: 0; }
-  100% { transform: translate(-50%,-50%) scale(2.3); opacity: 0; }
-}
-/* Reflet qui balaie le logo GARÉo (premium, discret mais visible) */
-@keyframes gareoSheen {
-  0%      { background-position: 130% 0; }
-  60%, 100% { background-position: -30% 0; }
-}
-/* Énergie qui circule sur la portion d'avancement parcourue */
-@keyframes gareoFlow { to { background-position: -200% 0; } }
-.gareo-flow { background-size: 200% 100%; animation: gareoFlow 2.6s linear infinite; }
-/* Halo doux du marqueur d'avancement */
-@keyframes gareoMarkerHalo {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(200,16,46,0.45); }
-  50%      { box-shadow: 0 0 0 5px rgba(200,16,46,0); }
+/* GARÉo - logo hub animé (écran d'accès). 100% SVG + CSS, aucun JS. */
+.gareo-logo .g-wrap { animation: g-loop 4.8s linear infinite; }
+@keyframes g-loop { 0% { opacity: 0; } 4% { opacity: 1; } 94% { opacity: 1; } 100% { opacity: 0; } }
+.gareo-logo .g-feed { stroke-dasharray: 1; stroke-dashoffset: 1; animation: g-draw 4.8s ease-out infinite; }
+@keyframes g-draw { 0% { stroke-dashoffset: 1; } 30% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 0; } }
+.gareo-logo .g-spoke { stroke-dasharray: 1; stroke-dashoffset: 1; animation: g-spoke 4.8s ease-out infinite; }
+@keyframes g-spoke { 0%, 9% { stroke-dashoffset: 1; } 32% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 0; } }
+.gareo-logo .g-pop { transform-box: fill-box; transform-origin: center; transform: scale(0); animation: g-pop 4.8s cubic-bezier(.34,1.4,.5,1) infinite; }
+@keyframes g-pop { 0%, 30% { transform: scale(0); } 40% { transform: scale(1.25); } 46% { transform: scale(1); } 100% { transform: scale(1); } }
+.gareo-logo .g-node { transform-box: fill-box; transform-origin: center; transform: scale(0); animation: g-node 4.8s cubic-bezier(.34,1.4,.5,1) infinite; }
+@keyframes g-node { 0%, 28% { transform: scale(0); } 38% { transform: scale(1.18); } 44% { transform: scale(1); } 100% { transform: scale(1); } }
+.gareo-logo .g-star { transform-box: fill-box; transform-origin: center; opacity: 0; animation: g-star 4.8s ease-in-out infinite; }
+@keyframes g-star { 0%, 34% { transform: scale(0) rotate(0); opacity: 0; } 40% { transform: scale(1) rotate(0); opacity: 1; } 46% { transform: scale(.5); opacity: .5; } 52% { transform: scale(1.06) rotate(45deg); opacity: 1; } 64% { transform: scale(.2) rotate(45deg); opacity: 0; } 100% { opacity: 0; } }
+.gareo-logo .g-ring { transform-box: fill-box; transform-origin: center; opacity: 0; animation: g-ring 4.8s ease-out infinite; }
+@keyframes g-ring { 0%, 34% { transform: scale(.5); opacity: 0; } 40% { opacity: .8; } 60% { transform: scale(2.6); opacity: 0; } 100% { opacity: 0; } }
+/* Bannière : le hub se construit UNE fois à l'ouverture puis reste figé */
+.gareo-banner .g-wrap { opacity: 1; }
+.gareo-banner .g-feed { stroke-dashoffset: 0; }
+.gareo-banner .g-spoke { stroke-dashoffset: 0; }
+.gareo-banner .g-pop { transform-box: fill-box; transform-origin: center; transform: scale(1); }
+.gareo-banner .g-node { transform-box: fill-box; transform-origin: center; transform: scale(1); }
+.gareo-banner .g-star { opacity: 0; }
+.gareo-banner .g-ring { opacity: 0; }
+.gareo-banner.is-animating .g-feed { stroke-dasharray: 1; stroke-dashoffset: 1; animation: g-draw 1.5s ease-out 1 both; }
+.gareo-banner.is-animating .g-spoke { stroke-dasharray: 1; stroke-dashoffset: 1; animation: g-spoke 1.5s ease-out 1 both; }
+.gareo-banner.is-animating .g-pop { transform: scale(0); animation: g-pop 1.5s cubic-bezier(.34,1.4,.5,1) 1 both; }
+.gareo-banner.is-animating .g-node { transform: scale(0); animation: g-node 1.5s cubic-bezier(.34,1.4,.5,1) 1 both; }
+.gareo-banner.is-animating .g-star { animation: g-star 1.5s ease-in-out 1 both; }
+.gareo-banner.is-animating .g-ring { animation: g-ring 1.5s ease-out 1 both; }
+@media (prefers-reduced-motion: reduce) {
+  .gareo-logo .g-wrap, .gareo-logo .g-feed, .gareo-logo .g-spoke, .gareo-logo .g-pop, .gareo-logo .g-node, .gareo-logo .g-star, .gareo-logo .g-ring,
+  .gareo-banner.is-animating .g-feed, .gareo-banner.is-animating .g-spoke, .gareo-banner.is-animating .g-pop, .gareo-banner.is-animating .g-node, .gareo-banner.is-animating .g-star, .gareo-banner.is-animating .g-ring { animation: none; }
+  .gareo-logo .g-feed, .gareo-logo .g-spoke { stroke-dashoffset: 0; }
+  .gareo-logo .g-pop, .gareo-logo .g-node { transform: scale(1); }
+  .gareo-logo .g-star, .gareo-logo .g-ring { opacity: 0; }
 }
 </style>
 </head>
@@ -2860,8 +2791,6 @@ html, body { height: 100%; overflow: hidden; }
 </svg>
 </template>
 <div id="root"></div>
-<div id="tweaks-root"></div>
-<script type="text/babel" src="tweaks-panel.jsx"></script>
 <script type="text/babel" data-presets="react">
 
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
@@ -4337,67 +4266,72 @@ const SERM_LINES = [
 
 /* GARÉo — empreinte de l'outil. Le « o » est une cible / point de relevé
    (disque rouge · anneau clair · centre rouge), en écho au pointage terrain. */
-function GareoMark({ size = 22, theme = 'dark', pulse = false, sheen = false }) {
-  const ink  = theme === 'dark' ? 'var(--paper-light)' : 'var(--ink)';
-  const node = 'var(--red)';
-  const core = 'var(--paper-light)';      // centre clair du point
-  const d    = Math.round(size * 0.56);   // diamètre du point (≈ bas-de-casse)
-  const coreD = Math.round(d * 0.40);
+/* ============================================================
+   GARÉo - logo "hub" (rail + rayons + nœud + étoile). SVG inline.
+   Couleurs charte AREP. theme: 'dark' (fond sombre -> texte crème) /
+   'light' (fond clair -> texte encre). Le <g> est partagé par le
+   splash (boucle) et la bannière (jouée une fois à l'ouverture).
+   ============================================================ */
+function GareoHubSVG({ theme = 'dark' }) {
+  const dark = theme !== 'light';
+  const txt  = dark ? 'var(--paper-light)' : 'var(--ink)';
+  const core = dark ? 'var(--paper-light)' : 'var(--white)';
+  const cR = dark ? '#FF2A43' : '#E60E2C';
+  const cG = dark ? '#268A52' : '#1D5E3A';
+  const cB = dark ? '#2C7E9C' : '#185C72';
+  const red = '#C8102E';
   return (
-    <span aria-label="GARÉo" style={{
-      display: 'inline-flex', alignItems: 'baseline', whiteSpace: 'nowrap',
-      fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: size,
-      letterSpacing: '-0.045em', lineHeight: 1, color: ink, userSelect: 'none'
-    }}>
-      GARÉ
-      <span aria-hidden style={{
-        position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        flexShrink: 0, width: d, height: d, borderRadius: '50%', background: node, boxSizing: 'border-box',
-        marginLeft: Math.round(size * 0.06),
-        transform: `translateY(${Math.round(size * 0.02)}px)`
-      }}>
-        {/* centre clair — point de relevé (centré au flex) */}
-        <span style={{ width: coreD, height: coreD, borderRadius: '50%', background: core }} />
-        {/* pulse parfaitement centré */}
-        {pulse &&
-        <span style={{ position: 'absolute', top: '50%', left: '50%', width: d, height: d,
-          borderRadius: '50%', border: `${Math.max(1.5, Math.round(size * 0.07))}px solid ${node}`,
-          boxSizing: 'border-box', transform: 'translate(-50%,-50%)', transformOrigin: 'center',
-          animation: 'gareoPulseRing 2.6s ease-out infinite', pointerEvents: 'none' }} />}
-      </span>
-    </span>
+    <g className="g-wrap">
+      <polyline className="g-feed" points="-12,152 249.54,152 275.54,92.6" fill="none" stroke={red} strokeWidth="6.5" strokeLinecap="round" strokeLinejoin="round" pathLength="1" />
+      <line className="g-spoke" x1="261.64" y1="68.52" x2="244.64" y2="39.08" stroke={cR} strokeWidth="6" strokeLinecap="round" pathLength="1" />
+      <line className="g-spoke" x1="279.41" y1="65.07" x2="282.19" y2="45.27" stroke={cG} strokeWidth="6" strokeLinecap="round" pathLength="1" />
+      <line className="g-spoke" x1="295.54" y1="73.29" x2="316.40" y2="53.14" stroke={cB} strokeWidth="6" strokeLinecap="round" pathLength="1" />
+      <line className="g-spoke" x1="303.07" y1="88.73" x2="342.68" y2="83.16" stroke={cR} strokeWidth="6" strokeLinecap="round" pathLength="1" />
+      <line className="g-spoke" x1="299.62" y1="106.50" x2="319.53" y2="118.00" stroke={cG} strokeWidth="6" strokeLinecap="round" pathLength="1" />
+      <line className="g-spoke" x1="285.05" y1="118.72" x2="296.33" y2="149.73" stroke={cB} strokeWidth="6" strokeLinecap="round" pathLength="1" />
+      <text x="8" y="122" fontFamily="var(--font-display)" fontWeight="800" fontSize="96" letterSpacing="-4.5" fill={txt}>GARÉ</text>
+      <g className="g-node">
+        <circle cx="275.54" cy="92.6" r="23.8" fill={red} />
+        <circle cx="275.54" cy="92.6" r="8.57" fill={core} />
+      </g>
+      <circle className="g-pop" cx="244.64" cy="39.08" r="4.5" fill={cR} />
+      <circle className="g-pop" cx="282.19" cy="45.27" r="4.5" fill={cG} />
+      <circle className="g-pop" cx="316.40" cy="53.14" r="4.5" fill={cB} />
+      <circle className="g-pop" cx="342.68" cy="83.16" r="4.5" fill={cR} />
+      <circle className="g-pop" cx="319.53" cy="118.00" r="4.5" fill={cG} />
+      <circle className="g-pop" cx="296.33" cy="149.73" r="4.5" fill={cB} />
+      <circle className="g-ring" cx="275.54" cy="92.6" r="23.8" fill="none" stroke={red} strokeWidth="3" />
+      <path className="g-star" d="M275.54,54.80 Q281.59,86.55 313.34,92.6 Q281.59,98.65 275.54,130.40 Q269.49,98.65 237.74,92.6 Q269.49,86.55 275.54,54.80 Z" fill={core} />
+    </g>
   );
 }
 
-/* GARÉo splash animé — pour l'écran d'accès (entrée + train sur le rail) */
-function GareoSplash({ size = 46 }) {
+/* Splash animé (écran d'accès) - le hub se construit en boucle douce. */
+function GareoSplash({ size = 46, theme = 'dark' }) {
+  const h = Math.round(size * 1.6);
   return (
-    <div className="gareo-splash" style={{ position: 'relative', display: 'inline-block', paddingBottom: 13 }}>
-      <GareoMark size={size} theme="light" />
-      <span className="gareo-rail" aria-hidden />
-      <span className="gareo-ping" aria-hidden />
-      <span className="gareo-train" aria-hidden />
-    </div>
+    <svg className="gareo-logo" role="img" aria-label="GARÉo" viewBox="0 28 352 130"
+      style={{ height: h, width: 'auto', display: 'block' }}>
+      <GareoHubSVG theme={theme} />
+    </svg>
   );
 }
 
-/* Petit train (formes simples) — marqueur de progression sur la voie */
-function GareoTrain() {
+/* Bannière (masthead) - même hub, mais l'animation se joue UNE fois
+   par ouverture de l'app, puis reste figée (flag au niveau module). */
+let _gareoBannerPlayed = false;
+function GareoMark({ size = 22, theme = 'dark' }) {
+  const [anim] = useState(() => {
+    if (_gareoBannerPlayed) return false;
+    _gareoBannerPlayed = true;
+    return true;
+  });
+  const h = Math.round(size * 1.5);
   return (
-    <div aria-hidden style={{ position: 'relative', width: 26, height: 17 }}>
-      <div style={{ position: 'absolute', left: 0, top: 0, width: 26, height: 12,
-        borderRadius: '3px 6px 6px 3px', background: 'var(--red)',
-        boxShadow: '0 2px 5px rgba(0,0,0,0.20)' }}>
-        <div style={{ position: 'absolute', right: 3, top: 2.5, width: 6, height: 5,
-          borderRadius: 1, background: 'rgba(255,255,255,0.9)' }} />
-        <div style={{ position: 'absolute', left: 2.5, right: 11, top: 3, height: 5,
-          borderRadius: 1, background: 'rgba(255,255,255,0.35)' }} />
-      </div>
-      <div style={{ position: 'absolute', left: 5, top: 12, width: 4, height: 4,
-        borderRadius: '50%', background: 'var(--ink)' }} />
-      <div style={{ position: 'absolute', left: 16, top: 12, width: 4, height: 4,
-        borderRadius: '50%', background: 'var(--ink)' }} />
-    </div>
+    <svg className={'gareo-banner' + (anim ? ' is-animating' : '')} role="img" aria-label="GARÉo"
+      viewBox="0 28 352 130" style={{ height: h, width: 'auto', display: 'block', flexShrink: 0 }}>
+      <GareoHubSVG theme={theme} />
+    </svg>
   );
 }
 
@@ -4740,10 +4674,6 @@ function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, to
           </span>
         </button>
         <style>{`
-          @keyframes sermBlink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.55; }
-          }
           @keyframes sermShine {
             0% { left: -50%; }
             55%, 100% { left: 110%; }
@@ -4814,7 +4744,7 @@ function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, 
           <div style={{ padding: '10px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           borderBottom: '1px solid rgba(245,242,235,0.15)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-              <GareoMark size={23} theme="dark" pulse sheen />
+              <GareoMark size={22} theme="dark" />
               <span style={{ width: 1, height: 22, background: 'rgba(245,242,235,0.22)' }} />
               <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
                 <span style={{ fontSize: 9.5, opacity: 0.9, letterSpacing: '0.13em', textTransform: 'uppercase', fontWeight: 700 }}>par AREP</span>
@@ -8559,8 +8489,8 @@ function App() {
           padding: '30px 28px', maxWidth: 380, width: '100%',
           boxShadow: '0 24px 70px rgba(0,0,0,0.5)'
         }}>
-          <div style={{ marginBottom: 18 }}>
-            <GareoSplash size={48} />
+          <div style={{ marginBottom: 18, display: 'flex', justifyContent: 'center' }}>
+            <GareoSplash size={50} theme="light" />
           </div>
           <div style={{
             fontSize: 10, fontWeight: 700, letterSpacing: '0.16em',
@@ -8954,79 +8884,6 @@ function Toast({ toast }) {
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
-/* ============================================================
-   TWEAKS — contrôles expressifs. Ne touche NI aux données NI à la
-   logique : remappe seulement les variables CSS de :root (couleur
-   d'accent, température de surface, personnalité typographique), ce
-   qui se répercute partout puisque l'app est bâtie sur ces variables.
-   Monté dans un root React séparé (#tweaks-root) → 100% non invasif.
-   ============================================================ */
-const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "accent": "#C8102E",
-  "ambiance": "Papier",
-  "caractere": "Manrope"
-}/*EDITMODE-END*/;
-
-// Familles d'accent : on dérive dark / soft / tint pour rester cohérent
-const TWK_ACCENTS = {
-  '#C8102E': { red:'#C8102E', dark:'#9E0B24', soft:'#E8475B', tint:'#FBEAEC' }, // Rouge AREP
-  '#2563B0': { red:'#2563B0', dark:'#1A4A86', soft:'#5E92D4', tint:'#E9F0FA' }, // Bleu rail
-  '#8A2D5C': { red:'#8A2D5C', dark:'#6A2046', soft:'#B05A85', tint:'#F6EAF1' }, // Aubergine
-  '#0E7C86': { red:'#0E7C86', dark:'#0A5C64', soft:'#4FAAB1', tint:'#E3F2F3' }, // Sarcelle
-};
-// Ambiances : température/contraste des surfaces (Soleil = lisibilité plein air)
-const TWK_AMBIANCE = {
-  'Papier':  { 'paper-light':'#FAF8F3','paper':'#F5F2EB','paper-deep':'#EDE8DD','paper-shade':'#E6E0CF','border':'#D9D3C4','border-soft':'#E8E2D2','taupe':'#8B8680','taupe-light':'#BFB9AC','ink':'#1A1A1A','ink-soft':'#3D3D3D' },
-  'Atelier': { 'paper-light':'#F7F8FA','paper':'#EFF1F4','paper-deep':'#E6E9ED','paper-shade':'#DCE0E5','border':'#D2D7DE','border-soft':'#E6E9ED','taupe':'#7C8694','taupe-light':'#B3BAC4','ink':'#1B1E24','ink-soft':'#3A4049' },
-  'Soleil':  { 'paper-light':'#FFFFFF','paper':'#F4F4F4','paper-deep':'#ECECEC','paper-shade':'#E0E0E0','border':'#BDBDBD','border-soft':'#D8D8D8','taupe':'#5F5F5F','taupe-light':'#8C8C8C','ink':'#000000','ink-soft':'#262626' },
-};
-// Caractère : personnalité typographique (titrage + corps)
-const TWK_TYPE = {
-  'Manrope':   { display:'"Manrope", system-ui, sans-serif', sans:'"Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' },
-  'Éditorial': { display:'"Newsreader", Georgia, serif', sans:'"Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' },
-  'Technique': { display:'"IBM Plex Sans", system-ui, sans-serif', sans:'"IBM Plex Sans", system-ui, sans-serif' },
-};
-function applyTweaks(t) {
-  const r = document.documentElement.style;
-  const a = TWK_ACCENTS[t.accent] || TWK_ACCENTS['#C8102E'];
-  r.setProperty('--red', a.red); r.setProperty('--red-dark', a.dark);
-  r.setProperty('--red-soft', a.soft); r.setProperty('--red-tint', a.tint);
-  const m = TWK_AMBIANCE[t.ambiance] || TWK_AMBIANCE['Papier'];
-  Object.keys(m).forEach((k) => r.setProperty('--' + k, m[k]));
-  const ty = TWK_TYPE[t.caractere] || TWK_TYPE['Manrope'];
-  r.setProperty('--font-display', ty.display);
-  r.setProperty('--font-sans', ty.sans);
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', a.red);
-}
-
-(function mountTweaks() {
-  // La feuille de contrôles est chargée par un script séparé (tweaks-panel.jsx) :
-  // on attend qu'elle ait exposé ses composants avant de monter le panneau.
-  if (!window.TweaksPanel || !window.useTweaks) { return setTimeout(mountTweaks, 60); }
-  const { useTweaks, TweaksPanel, TweakSection, TweakColor, TweakRadio } = window;
-  function TweaksApp() {
-    const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
-    useEffect(() => { applyTweaks(t); }, [t.accent, t.ambiance, t.caractere]);
-    return (
-      <TweaksPanel title="Tweaks">
-        <TweakSection label="Signature" />
-        <TweakColor label="Accent" value={t.accent}
-          options={['#C8102E', '#2563B0', '#8A2D5C', '#0E7C86']}
-          onChange={(v) => setTweak('accent', v)} />
-        <TweakSection label="Ambiance" />
-        <TweakRadio label="Surface" value={t.ambiance}
-          options={['Papier', 'Atelier', 'Soleil']}
-          onChange={(v) => setTweak('ambiance', v)} />
-        <TweakSection label="Caractère" />
-        <TweakRadio label="Typo" value={t.caractere}
-          options={['Manrope', 'Éditorial', 'Technique']}
-          onChange={(v) => setTweak('caractere', v)} />
-      </TweaksPanel>
-    );
-  }
-  ReactDOM.createRoot(document.getElementById('tweaks-root')).render(<TweaksApp />);
-})();
 </script>
 </body>
 </html>
