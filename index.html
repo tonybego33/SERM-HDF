@@ -6393,7 +6393,7 @@ function OverviewScreen({ gare, visite, onBack, onZone, onExport, onPrintPDF, on
 /* ============================================================
    EXPORT SCREEN - choix scope (toutes / cette gare / sélection) × format (CSV / Excel / JSON)
    ============================================================ */
-function ExportScreen({ all, onBack, onExport, onExportPhotos, onExportPDFsZip, onExportSynth, onExportSynthPDF, onPrintPDF, syncing }) {
+function ExportScreen({ all, onBack, onExport, onExportPhotos, onExportPDFsZip, onExportSynth, onExportSynthPDF, onPrintPDF, onDeleteVisite, syncing }) {
   const visitesAll = Object.values(all).sort((a, b) => b.updated - a.updated);
   const [scope, setScope] = useState('all'); // 'all' | 'select' | 'completed' | 'in_progress'
   const [format, setFormat] = useState('xlsx'); // 'xlsx' | 'csv' | 'json'
@@ -6671,20 +6671,31 @@ function ExportScreen({ all, onBack, onExport, onExportPhotos, onExportPDFsZip, 
                   const g = GARES.find(x => x.nom === v.gare);
                   const st = g ? visiteStats(g, v.data) : { pct: 0 };
                   return (
-                    <button key={v.gare} onClick={() => onPrintPDF(v.gare)} style={{
-                      width: '100%', padding: '10px 14px',
+                    <div key={v.gare} style={{
+                      display: 'flex', alignItems: 'stretch',
                       borderBottom: i === visitesAll.length - 1 ? 'none' : '1px solid var(--border-soft)',
-                      textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
                       background: 'var(--white)'
                     }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 500 }}>{v.gare}</div>
-                        <div style={{ fontSize: 10, color: 'var(--taupe)', marginTop: 2 }}>
-                          {v.auteur || 'Anonyme'} · {st.pct}% complétée
+                      <button onClick={() => onPrintPDF(v.gare)} style={{
+                        flex: 1, minWidth: 0, padding: '10px 14px',
+                        textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+                        background: 'transparent', border: 'none', cursor: 'pointer'
+                      }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13.5, fontWeight: 500 }}>{v.gare}</div>
+                          <div style={{ fontSize: 10, color: 'var(--taupe)', marginTop: 2 }}>
+                            {v.auteur || 'Anonyme'} · {st.pct}% complétée
+                          </div>
                         </div>
-                      </div>
-                      <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 600 }}>📄 Générer →</span>
-                    </button>
+                        <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 600, whiteSpace: 'nowrap' }}>📄 Générer →</span>
+                      </button>
+                      {onDeleteVisite &&
+                      <button onClick={() => onDeleteVisite(v.gare)} title={'Supprimer ' + v.gare} style={{
+                        flexShrink: 0, width: 44, borderLeft: '1px solid var(--border-soft)',
+                        background: 'transparent', color: 'var(--taupe)', fontSize: 15, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                      }}>🗑</button>}
+                    </div>
                   );
                 })}
               </div>
@@ -7205,7 +7216,7 @@ function App() {
     debouncedPush(updated);
   };
 
-  const deleteVisite = async (gareName) => {
+  const deleteVisite = async (gareName, opts = {}) => {
     if (readOnly) { alert('Mode consultation - suppression désactivée'); return; }
     const typed = prompt(`⚠ Suppression IRRÉVERSIBLE de la visite "${gareName}".\n\nToutes les données saisies ET les photos seront perdues.\n\nPour confirmer, tape exactement le nom de la gare :`);
     if (typed === null) return; // Annulé
@@ -7216,7 +7227,7 @@ function App() {
     setAll((a) => { const next = { ...a }; delete next[gareName]; return next; });
     await deleteVisiteRemote(gareName);
     showToast('Visite supprimée');
-    setRoute({ name: 'home' });
+    if (!opts.stay) setRoute({ name: 'home' });
   };
 
   const changeAuteur = () => {
@@ -7337,7 +7348,7 @@ function App() {
 
   /* ===========================================================
      EXPORT EXCEL STYLÉ (ExcelJS) - multi-onglets façon base de données pro
-     Onglets : Base de données / Suivi visites / Méthodologie / Mode d'emploi
+     Onglets : Base de données / Suivi visites / Méthodologie
      =========================================================== */
 
 
@@ -7376,7 +7387,9 @@ function App() {
       return parts.join(' · ');
     }
     if (c.type === 'rating' && c.labels && typeof v === 'number') { const idx = Math.round(v * (c.labels.length - 1)); return c.labels[idx] || `Note ${v}`; }
-    if (c.type === 'yesno') return v === true ? 'Oui' : v === false ? 'Non' : String(v);
+    // yes/no stocké en chaîne 'yes'/'no' (ou booléen) -> libellé français
+    if (v === 'yes' || v === true)  return c.type === 'yesno' ? 'Oui' : 'Présent';
+    if (v === 'no'  || v === false) return c.type === 'yesno' ? 'Non' : 'Absent';
     return String(v);
   };
 
@@ -7843,51 +7856,6 @@ function App() {
     wsMethodo.getColumn(4).width = 10;
     wsMethodo.getColumn(5).width = 60;
 
-    // ============= ONGLET 4 : Mode d'emploi =============
-    const wsMode = wb.addWorksheet("Mode d'emploi", { views: [{ showGridLines: false }] });
-    wsMode.mergeCells('B2:D2');
-    wsMode.getCell('B2').value = "AREP - MODE D'EMPLOI";
-    wsMode.getCell('B2').font = { name: 'Arial', size: 16, bold: true };
-    wsMode.mergeCells('B3:D3');
-    wsMode.getCell('B3').value = 'Lecture et utilisation de cette base';
-    wsMode.getCell('B3').font = { name: 'Arial', size: 10, italic: true, color: { argb: 'FF6B6259' } };
-
-    const modeContent = [
-      ['STRUCTURE', ''],
-      ['Onglet 1', 'Base de données : 1 ligne par gare visitée. Headers colorés par section.'],
-      ['Onglet 2', "Suivi : statut d'avancement par gare (Complète / En cours / Démarrée / À faire)."],
-      ['Onglet 3', 'Méthodologie : architecture du référentiel, sections et nombre de critères.'],
-      ['Onglet 4', "Ce mode d'emploi."],
-      ['', ''],
-      ['CONVENTIONS', ''],
-      ['Valeurs', '"Présent" / "Absent" pour les présences, "Oui" / "Non" pour les booléens, valeurs textuelles pour les choix, nombres pour les compteurs.'],
-      ['N/A', "Critère marqué comme Non Applicable ou Ne Sait Pas - compte comme rempli dans la complétion."],
-      ['Note', 'Une note libre peut être attachée à chaque critère - apparaît en commentaire de cellule (survol).'],
-      ['Photos', "Les photos sont stockées séparément (ZIP photothèque), non incluses dans ce fichier."],
-      ['', ''],
-      ['SOURCE', ''],
-      ['Outil', "Saisie via l'app SERM HDF (HTML + Supabase). Cet Excel est généré à l'export."],
-      ['Contact', '']
-    ];
-    let rMode = 6;
-    modeContent.forEach((line) => {
-      const isHeader = line[1] === '' && line[0] !== '';
-      if (isHeader) {
-        wsMode.getCell(rMode, 2).value = line[0];
-        wsMode.getCell(rMode, 2).font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFC8102E' } };
-      } else if (line[0] !== '' || line[1] !== '') {
-        wsMode.getCell(rMode, 2).value = line[0];
-        wsMode.getCell(rMode, 2).font = { name: 'Arial', size: 10, bold: true };
-        wsMode.getCell(rMode, 3).value = line[1];
-        wsMode.getCell(rMode, 3).font = { name: 'Arial', size: 10 };
-        wsMode.getCell(rMode, 3).alignment = { wrapText: true };
-      }
-      rMode++;
-    });
-    wsMode.getColumn(1).width = 3;
-    wsMode.getColumn(2).width = 16;
-    wsMode.getColumn(3).width = 80;
-
     // ============= SAVE =============
     const buffer = await wb.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -7916,7 +7884,7 @@ function App() {
             if (!p.url) return;
             const num = String(i + 1).padStart(2, '0');
             const ext = (p.url.match(/\.(jpe?g|png|webp|heic)(?:\?|$)/i)?.[1] || 'jpg').toLowerCase();
-            photoJobs.push({ path: `${gareSafe}/${secSafe}/${critSafe}_${num}.${ext}`, url: p.url });
+            photoJobs.push({ zipPath: `${gareSafe}/${secSafe}/${critSafe}_${num}.${ext}`, url: p.url, storagePath: p.path });
           });
         });
       });
@@ -7936,29 +7904,52 @@ function App() {
       '',
       '--- DETAIL ---'];
 
-    // ⚡ FIX : téléchargement par LOTS PARALLÈLES (8 à la fois) au lieu de séquentiel.
-    // Diminue drastiquement le temps total (le réseau est le goulot, pas le CPU).
-    const BATCH = 8;
+    // ⚡ Téléchargement FIABLE : SDK Supabase (download direct par chemin) avec
+    // RETRY + backoff. C'est l'absence de reprise sur échec qui causait les
+    // centaines d'échecs (Supabase rate-limite à ~429 au-delà de quelques
+    // centaines de requêtes rapides, et chaque coupure réseau = échec définitif).
+    // Ici : 4 tentatives espacées (0.5s/1s/2s) -> le taux d'échec tombe ~à zéro.
+    const fetchOnePhoto = async (job) => {
+      // data: URL -> conversion directe, aucun réseau
+      if (job.url && job.url.startsWith('data:')) {
+        try { return await (await fetch(job.url)).blob(); } catch (e) { return null; }
+      }
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          if (job.storagePath && supa) {
+            const { data, error } = await supa.storage.from('photos').download(job.storagePath);
+            if (error) throw error;
+            if (data) return data;
+          }
+          if (job.url) {
+            const resp = await fetch(job.url);
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            return await resp.blob();
+          }
+          return null;
+        } catch (e) {
+          if (attempt === 3) { console.warn('Photo échec définitif:', job.storagePath || job.url, e); return null; }
+          await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt))); // 0.5s, 1s, 2s
+        }
+      }
+      return null;
+    };
+
+    // Lots parallèles modérés (6) : assez rapide, sans saturer le rate-limit.
+    const BATCH = 6;
     for (let i = 0; i < photoJobs.length; i += BATCH) {
       const batch = photoJobs.slice(i, i + BATCH);
       const results = await Promise.all(batch.map(async (job) => {
-        try {
-          const resp = await fetch(job.url);
-          if (!resp.ok) throw new Error('HTTP ' + resp.status);
-          const blob = await resp.blob();
-          return { job, blob, ok: true };
-        } catch (e) {
-          console.warn('Photo fetch failed:', job.url, e);
-          return { job, ok: false };
-        }
+        const blob = await fetchOnePhoto(job);
+        return { job, blob, ok: !!blob };
       }));
       results.forEach(r => {
         if (r.ok) {
-          zip.file(r.job.path, r.blob);
-          manifest.push(`✓ ${r.job.path}`);
+          zip.file(r.job.zipPath, r.blob);
+          manifest.push(`✓ ${r.job.zipPath}`);
           fetched++;
         } else {
-          manifest.push(`✗ ${r.job.path}  [ÉCHEC]`);
+          manifest.push(`✗ ${r.job.zipPath}  [ÉCHEC]`);
           errors++;
         }
       });
@@ -7987,22 +7978,36 @@ function App() {
 
   /* ===== GÉNÉRATION PDF NATIF (jsPDF) - A4 calibré, téléchargement direct ===== */
 
-  // Convertit une URL (publique ou data:) en data URL JPEG
-  const urlToBase64 = async (url) => {
-    if (url.startsWith('data:')) return url;
-    const resp = await fetch(url);
-    const blob = await resp.blob();
-    return new Promise((resolve, reject) => {
+  // Convertit une URL (publique ou data:) en data URL JPEG.
+  // Fiable : SDK Supabase (download par chemin) + retry/backoff comme la photothèque.
+  const urlToBase64 = async (url, storagePath) => {
+    if (url && url.startsWith('data:')) return url;
+    const toDataUrl = (blob) => new Promise((resolve, reject) => {
       const r = new FileReader();
       r.onload = () => resolve(r.result);
       r.onerror = reject;
       r.readAsDataURL(blob);
     });
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        if (storagePath && supa) {
+          const { data, error } = await supa.storage.from('photos').download(storagePath);
+          if (error) throw error;
+          if (data) return await toDataUrl(data);
+        }
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return await toDataUrl(await resp.blob());
+      } catch (e) {
+        if (attempt === 3) throw e;
+        await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt))); // 0.5s, 1s, 2s
+      }
+    }
   };
 
   // Redimensionne pour le PDF (max 600px, JPEG 75%)
-  const resizeForPDF = async (url, maxDim = 600) => {
-    const dataUrl = await urlToBase64(url);
+  const resizeForPDF = async (url, maxDim = 600, storagePath) => {
+    const dataUrl = await urlToBase64(url, storagePath);
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
@@ -8331,7 +8336,7 @@ function App() {
         for (let i = 0; i < list.length; i += BATCH) {
           const batch = list.slice(i, i + BATCH);
           const results = await Promise.all(batch.map(async (ph) => {
-            try { const r = await resizeForPDF(ph.p.url, maxDim); return { ...ph, dataUrl: r.dataUrl, w: r.w, h: r.h }; }
+            try { const r = await resizeForPDF(ph.p.url, maxDim, ph.p.path); return { ...ph, dataUrl: r.dataUrl, w: r.w, h: r.h }; }
             catch (e) { return { ...ph, dataUrl: null }; }
           }));
           out.push(...results);
@@ -8611,6 +8616,7 @@ function App() {
           const v = all[gareName];
           if (g && v) buildPDFForGare(g, v);
         }}
+        onDeleteVisite={readOnly ? null : ((n) => deleteVisite(n, { stay: true }))}
         pdfStatus={pdfStatus}
         syncing={syncing} />
       <Toast toast={toast} />
