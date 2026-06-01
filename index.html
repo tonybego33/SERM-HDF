@@ -4687,7 +4687,7 @@ function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, to
 /* ============================================================
    HOME SCREEN
    ============================================================ */
-function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, onSynthese, syncing, readOnly, isOnline, pendingCount, retryingPhotos, gridRev }) {
+function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, onSynthese, syncing, readOnly, isOnline, pendingCount, retryingPhotos, gridRev, onDeleteVisite }) {
   const visites = Object.values(all).sort((a, b) => b.updated - a.updated);
   const totalGares = GARES.length;
   const visited = visites.length;
@@ -4839,12 +4839,16 @@ function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, 
             const isMine = v.auteur === auteur;
             const done = stats.pct === 100;
             return (
-              <button key={v.gare} onClick={() => onOpen(v.gare)} style={{
+              <div key={v.gare} style={{
                 background: 'var(--white)', border: '1px solid var(--border)',
                 borderLeft: `3px solid ${done ? 'var(--green)' : stats.pct > 0 ? 'var(--red)' : 'var(--border)'}`,
-                padding: '12px 14px 11px', textAlign: 'left',
-                display: 'flex', alignItems: 'center', gap: 13, position: 'relative'
+                display: 'flex', alignItems: 'stretch', position: 'relative'
               }}>
+                <button onClick={() => onOpen(v.gare)} style={{
+                  flex: 1, minWidth: 0, padding: '12px 14px 11px', textAlign: 'left',
+                  display: 'flex', alignItems: 'center', gap: 13,
+                  background: 'transparent', border: 'none', cursor: 'pointer'
+                }}>
                   <span className="tabular" style={{
                   fontSize: 11, fontWeight: 700, color: 'var(--taupe-light)',
                   fontFamily: 'var(--font-display)', flexShrink: 0, alignSelf: 'flex-start',
@@ -4879,7 +4883,14 @@ function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, 
                     </div>
                   </div>
                   <span style={{ color: 'var(--taupe)', fontSize: 14, alignSelf: 'center' }}>›</span>
-                </button>);
+                </button>
+                {onDeleteVisite &&
+                <button onClick={() => onDeleteVisite(v.gare)} title={'Supprimer ' + v.gare} style={{
+                  flexShrink: 0, width: 40, borderLeft: '1px solid var(--border-soft)',
+                  background: 'transparent', color: 'var(--taupe-light)', fontSize: 14, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>🗑</button>}
+                </div>);
 
           })}
           </div>
@@ -8579,6 +8590,7 @@ function App() {
         isOnline={isOnline}
         pendingCount={pendingCount}
         retryingPhotos={retryingPhotos}
+        onDeleteVisite={readOnly ? null : ((n) => deleteVisite(n, { stay: true }))}
         gridRev={gridRev} />
       <Toast toast={toast} />
       <PDFProgressOverlay status={pdfStatus} />
