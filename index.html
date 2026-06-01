@@ -7902,7 +7902,8 @@ function App() {
     if (totalPhotos === 0) { showToast('Aucune photo à exporter', 'error'); return; }
 
     setSyncing(true);
-    showToast(`Préparation de ${totalPhotos} photo${totalPhotos > 1 ? 's' : ''}…`);
+    setPdfStatus({ stage: 'Préparation…', current: 0, total: totalPhotos });
+    const t0 = Date.now();
     const zip = new window.JSZip();
     let fetched = 0, errors = 0;
     const manifest = [`PHOTOTHEQUE SERM HAUTS-DE-FRANCE`,
@@ -7944,8 +7945,9 @@ function App() {
       return null;
     };
 
-    // Lots parallèles modérés (6) : assez rapide, sans saturer le rate-limit.
-    const BATCH = 6;
+    // Lots parallèles (10) : sature mieux la bande passante. Le retry absorbe
+    // les éventuels 429 dus à la concurrence plus élevée.
+    const BATCH = 10;
     for (let i = 0; i < photoJobs.length; i += BATCH) {
       const batch = photoJobs.slice(i, i + BATCH);
       const results = await Promise.all(batch.map(async (job) => {
@@ -7962,11 +7964,20 @@ function App() {
           errors++;
         }
       });
-      showToast(`Photos : ${fetched + errors}/${totalPhotos}…`);
+      // Progression live + estimation du temps restant
+      const done = fetched + errors;
+      let eta = '';
+      if (done >= 12) {
+        const rate = done / Math.max(0.001, (Date.now() - t0) / 1000); // photos/s
+        const remain = Math.max(0, Math.round((totalPhotos - done) / rate));
+        eta = remain > 90 ? ` · ~${Math.ceil(remain / 60)} min restantes` : ` · ~${remain}s restantes`;
+      }
+      setPdfStatus({ stage: `Téléchargement des photos…${eta}`, current: done, total: totalPhotos });
     }
 
     if (fetched === 0) {
       showToast('Échec téléchargement des photos', 'error');
+      setPdfStatus(null);
       setSyncing(false);
       return;
     }
@@ -7974,7 +7985,7 @@ function App() {
     manifest.push('', `--- RECAP ---`, `${fetched} photo(s) téléchargée(s)`, errors > 0 ? `${errors} échec(s)` : '');
     zip.file('_README.txt', manifest.join('\n'));
 
-    showToast('Compression du ZIP…');
+    setPdfStatus({ stage: 'Compression du ZIP…', current: totalPhotos, total: totalPhotos });
     // ⚡ FIX : compression STORE (pas DEFLATE). Les JPEG sont DÉJÀ compressés,
     // donc DEFLATE niveau 6 ne gagne ~rien mais coûte un temps CPU énorme
     // (cause principale du freeze sur ~700 photos). STORE = quasi instantané.
@@ -7982,6 +7993,7 @@ function App() {
     const today = new Date().toISOString().slice(0, 10);
     downloadBlob(blob, `photos_SERM_HDF_${today}.zip`);
     showToast(`Photothèque ZIP : ${fetched} photo${fetched > 1 ? 's' : ''}${errors > 0 ? ` (${errors} échec)` : ''} ✓`, 'success');
+    setPdfStatus(null);
     setSyncing(false);
   };
 
