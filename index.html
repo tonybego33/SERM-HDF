@@ -2798,6 +2798,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
    DATA - gares Hauts-de-France (référentiel SERM)
    ============================================================ */
 const GARES = [
+{ nom: "Gare Test 1", uic: 99999991, cat_pro: "1- Pôle régional", cat_sgp: "PEM de centralité", ligne_flux: "TEST", axe: "Test Paris", secteur: "Test", profile: "bv_ouvert_pers", config: "biface", quais: 3 },
 { nom: "Lille Flandres", uic: 87286005, cat_pro: "1- Pôle régional", cat_sgp: "PEM de centralité", ligne_flux: "B01", axe: "Hub Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_pers", config: "biface", quais: 4 },
 { nom: "Annappes", uic: 87286856, cat_pro: "4- Point d'arrêt urbain", cat_sgp: "Gare urbaine", ligne_flux: "B02", axe: "Ascq-Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 },
 { nom: "Armentières", uic: 87286146, cat_pro: "2- Pôle de rabattement", cat_sgp: "PEM urbain", ligne_flux: "B10", axe: "Hazebrouck-Lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_pers", config: "biface", quais: 3 },
@@ -8129,11 +8130,11 @@ function App() {
     y += 14;
 
     // ════════════════════════════════════════════════════════════════
-    //  STRUCTURE DE LA FICHE (lisibilité "executive summary") :
-    //   1. Page 1 : SYNTHÈSE - ce qu'il faut retenir (enjeux, alertes,
-    //      commentaires clés) → compréhensible en 10 sec sans avoir visité.
-    //   2. DÉTAIL DU RELEVÉ - tableaux compacts par section.
-    //   3. PHOTOS - groupées par section (avec titre), synthèse en avant.
+    //  STRUCTURE DE LA FICHE (lisible par quelqu'un qui n'a pas visité) :
+    //   1. SYNTHÈSE en tête - par question : réponse + commentaire + photo.
+    //      C'est le cœur : on capte direct les problématiques de la gare.
+    //   2. DÉTAIL par catégorie - données de la section PUIS ses photos
+    //      légendées, enchaînées (chaque catégorie est auto-portante).
     // ════════════════════════════════════════════════════════════════
     const sections = SECTIONS.filter(s => !s.skipIf || !s.skipIf(gare, visite.data));
     const synthSection = sections.find(s => s.synth);
@@ -8179,56 +8180,154 @@ function App() {
       y += 1;
     };
 
+    // ── Helpers photos (utilisés par la SYNTHÈSE et par le DÉTAIL) ──
+    const countPhotos = (s) => (s.criteria || []).reduce((n, c) => n + ((visite.data?.[c.id]?.photos || []).length), 0);
+    const grandTotalPhotos = sections.reduce((n, s) => n + countPhotos(s), 0);
+    let resizeDone = 0;
+    if (grandTotalPhotos > 0) setPdfStatus({ stage: 'Téléchargement des photos…', current: 0, total: grandTotalPhotos });
+
+    const resizePhotos = async (list, maxDim) => {
+      const out = [];
+      const BATCH = 4;
+      for (let i = 0; i < list.length; i += BATCH) {
+        const batch = list.slice(i, i + BATCH);
+        const results = await Promise.all(batch.map(async (ph) => {
+          try { const r = await resizeForPDF(ph.p.url, maxDim, ph.p.path); return { ...ph, dataUrl: r.dataUrl, w: r.w, h: r.h }; }
+          catch (e) { return { ...ph, dataUrl: null }; }
+        }));
+        out.push(...results);
+        resizeDone += results.length;
+        setPdfStatus({ stage: 'Téléchargement des photos…', current: resizeDone, total: grandTotalPhotos });
+      }
+      return out;
+    };
+
+    const collectPhotos = (s) => {
+      const arr = [];
+      (s.criteria || []).forEach(c => {
+        (visite.data?.[c.id]?.photos || []).forEach((p, i) => arr.push({ p, label: c.label, num: i + 1 }));
+      });
+      return arr;
+    };
+
+    const drawGrid = (photos, cols, highlight) => {
+      const GAP = 3;
+      const cellW = (CONTENT_W - (cols - 1) * GAP) / cols;
+      const cellH = cellW * 0.72;
+      const captionH = 5.5;
+      let col = 0;
+      for (let k = 0; k < photos.length; k++) {
+        const ph = photos[k];
+        if (col === 0 && y + cellH + captionH > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
+        const x = MARGIN + col * (cellW + GAP);
+        doc.setFillColor(240, 235, 224);
+        doc.rect(x, y, cellW, cellH, 'F');
+        if (ph.dataUrl && ph.w && ph.h) {
+          const pr = ph.w / ph.h, cr = cellW / cellH;
+          let dW, dH;
+          if (pr > cr) { dW = cellW; dH = cellW / pr; } else { dH = cellH; dW = cellH * pr; }
+          try { doc.addImage(ph.dataUrl, 'JPEG', x + (cellW - dW) / 2, y + (cellH - dH) / 2, dW, dH, undefined, 'FAST'); } catch (e) { console.warn('addImage', e); }
+        } else if (ph.dataUrl) {
+          try { doc.addImage(ph.dataUrl, 'JPEG', x, y, cellW, cellH, undefined, 'FAST'); } catch (e) {}
+        } else {
+          doc.setFontSize(6); doc.setTextColor(150);
+          doc.text('Image non dispo', x + cellW / 2, y + cellH / 2, { align: 'center' });
+          doc.setTextColor(0);
+        }
+        if (highlight) { doc.setDrawColor(200, 16, 46); doc.setLineWidth(0.6); doc.rect(x, y, cellW, cellH, 'S'); doc.setLineWidth(0.1); doc.setDrawColor(0); }
+        doc.setFontSize(5.5); doc.setTextColor(90);
+        const cap = `${ph.label} #${ph.num}`;
+        const maxLen = cols === 2 ? 60 : 40;
+        const t = cap.length > maxLen ? cap.slice(0, maxLen - 2) + '…' : cap;
+        doc.text(t, x, y + cellH + 3);
+        doc.setTextColor(0);
+        col++;
+        if (col === cols) { col = 0; y += cellH + captionH; }
+      }
+      if (col !== 0) { y += cellH + captionH; }
+    };
+
     // ───────────────────────────────────────────────────────────────
-    // 1. SYNTHÈSE - CE QU'IL FAUT RETENIR (page 1, tout en haut)
+    // 1. SYNTHÈSE — le cœur : par question -> réponse + commentaire + photo
+    //    (compréhensible par quelqu'un qui n'a pas fait la visite)
     // ───────────────────────────────────────────────────────────────
     if (synthSection) {
       const synthItems = (synthSection.criteria || []).filter(c => c.type !== 'subhead' && c.type !== 'text');
-      // Bandeau rouge
       doc.setFillColor(200, 16, 46);
       doc.rect(MARGIN, y, CONTENT_W, 9, 'F');
       doc.setTextColor(255);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
-      doc.text("CE QU'IL FAUT RETENIR", MARGIN + 3, y + 6);
+      doc.text("SYNTHÈSE — CE QU'IL FAUT RETENIR", MARGIN + 3, y + 6);
       doc.setTextColor(0);
       doc.setFont('helvetica', 'normal');
       y += 12;
 
-      // Valeurs clés renseignées (priorité, alertes, vétusté…) en évidence
-      const filledSynth = synthItems.filter(c => {
+      // Photos de la synthèse téléchargées d'avance (par question)
+      const synthPhotosByCrit = {};
+      for (const c of synthItems) {
+        const ph = (visite.data?.[c.id]?.photos || []).map((p, i) => ({ p, label: c.label, num: i + 1 }));
+        if (ph.length) synthPhotosByCrit[c.id] = await resizePhotos(ph, 1400);
+      }
+
+      let anySynth = false;
+      for (const c of synthItems) {
         const raw = visite.data?.[c.id];
-        return raw != null && formatValForPDF(c, raw) !== '-';
-      });
-      if (filledSynth.length > 0) {
-        doc.autoTable({
-          startY: y,
-          body: filledSynth.map(c => {
-            const raw = visite.data?.[c.id];
-            return [
-              { content: c.label, styles: { halign: 'left', fontStyle: 'bold', textColor: [40,40,40] } },
-              { content: formatValForPDF(c, raw), styles: { halign: 'left', fontStyle: 'bold', textColor: [200,16,46] } }
-            ];
-          }),
-          styles: { fontSize: 10, cellPadding: { top: 1.6, right: 3, bottom: 1.6, left: 3 }, lineColor: [225,215,200], lineWidth: 0.1 },
-          columnStyles: { 0: { cellWidth: 110 }, 1: { cellWidth: 80 } },
-          margin: { left: MARGIN, right: MARGIN },
-          theme: 'plain'
-        });
-        y = doc.lastAutoTable.finalY + 2;
-      } else {
+        const val = formatValForPDF(c, raw);
+        const note = raw?.note ? String(raw.note) : '';
+        const photos = synthPhotosByCrit[c.id] || [];
+        const hasVal = raw != null && val !== '-';
+        if (!hasVal && !note && photos.length === 0) continue; // question vide -> ignorée
+        anySynth = true;
+
+        if (y + 14 > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
+
+        // Question (gras)
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(30);
+        const labelLines = doc.splitTextToSize(c.label, CONTENT_W - 4);
+        doc.text(labelLines, MARGIN + 2, y + 3.5);
+        y += labelLines.length * 4.2 + 1;
+
+        // Réponse
+        if (hasVal) {
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(200, 16, 46);
+          const vLines = doc.splitTextToSize('Réponse : ' + val, CONTENT_W - 4);
+          if (y + vLines.length * 4.2 > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
+          doc.text(vLines, MARGIN + 2, y + 3);
+          y += vLines.length * 4.2 + 0.5;
+          doc.setTextColor(0);
+        }
+
+        // Commentaire
+        if (note) {
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+          const nLines = doc.splitTextToSize(note, CONTENT_W - 7);
+          const blockH = nLines.length * 4 + 3;
+          if (y + blockH > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
+          doc.setFillColor(248, 246, 240); doc.rect(MARGIN, y, CONTENT_W, blockH, 'F');
+          doc.setFillColor(200, 16, 46); doc.rect(MARGIN, y, 1, blockH, 'F');
+          doc.setTextColor(40);
+          doc.text(nLines, MARGIN + 3.5, y + 3.5);
+          y += blockH + 1.5;
+          doc.setTextColor(0);
+        }
+
+        // Photo(s) de la question (grille 2 colonnes, encadrées)
+        if (photos.length) { y += 0.5; drawGrid(photos, 2, true); }
+
+        // Séparateur entre questions
+        doc.setDrawColor(225, 215, 200); doc.setLineWidth(0.2);
+        doc.line(MARGIN, y + 0.5, PAGE_W - MARGIN, y + 0.5);
+        doc.setDrawColor(0); doc.setLineWidth(0.1);
+        y += 4;
+      }
+      if (!anySynth) {
         doc.setFontSize(8.5); doc.setTextColor(120); doc.setFont('helvetica', 'italic');
         doc.text('Synthèse non renseignée pour cette gare.', MARGIN + 2, y + 3);
         doc.setTextColor(0); doc.setFont('helvetica', 'normal');
         y += 7;
       }
-
-      // Commentaires de synthèse - EN GRAND (le coeur des enjeux)
-      const synthNotes = synthItems
-        .filter(c => visite.data?.[c.id]?.note)
-        .map(c => ({ label: c.label, note: visite.data[c.id].note }));
-      drawComments(synthNotes, true);
-      y += 3;
+      y += 2;
     }
 
     // ── RESSENTI À L'ARRIVÉE - remonté en page 1 (1re impression collective) ──
@@ -8318,115 +8417,27 @@ function App() {
         .map(c => ({ label: c.label, note: visite.data[c.id].note }));
       drawComments(secNotes, false);
 
+      // Photos de la section, juste après ses données (catégorie auto-portante)
+      const secPhotos = collectPhotos(s);
+      if (secPhotos.length) {
+        const processed = await resizePhotos(secPhotos, 1000);
+        if (y + 9 > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
+        doc.setFillColor(232, 232, 232); doc.setTextColor(40);
+        doc.rect(MARGIN, y, CONTENT_W, 5.5, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
+        doc.text(`PHOTOS — ${String(Math.floor(s.n)).padStart(2, '0')} - ${s.title}`, MARGIN + 2.5, y + 3.8);
+        doc.setTextColor(0); doc.setFont('helvetica', 'normal');
+        y += 7.5;
+        drawGrid(processed, 3, false);
+      }
+
+      y += 2;
       if (y > PAGE_H - 20) { doc.addPage(); y = MARGIN; }
     }
 
-    // ───────────────────────────────────────────────────────────────
-    // 3. PHOTOS - groupées par section (titre par section, synthèse en avant)
-    // ───────────────────────────────────────────────────────────────
-    const photoGroups = []; // { section, isSynth, photos:[{p,label,num}] }
-    const orderedForPhotos = synthSection ? [synthSection, ...detailSections] : detailSections;
-    for (const s of orderedForPhotos) {
-      const groupPhotos = [];
-      (s.criteria || []).forEach(c => {
-        const photos = visite.data?.[c.id]?.photos || [];
-        photos.forEach((p, i) => groupPhotos.push({ p, label: c.label, num: i + 1 }));
-      });
-      if (groupPhotos.length > 0) photoGroups.push({ section: s, isSynth: !!s.synth, photos: groupPhotos });
-    }
-    const totalPhotos = photoGroups.reduce((n, g) => n + g.photos.length, 0);
-
-    if (totalPhotos > 0) {
-      doc.addPage();
-      y = MARGIN;
-      doc.setFillColor(200, 16, 46);
-      doc.rect(0, 0, PAGE_W, 12, 'F');
-      doc.setTextColor(255);
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`PHOTOS - ${totalPhotos} photo${totalPhotos > 1 ? 's' : ''} (classees par section)`, MARGIN, 8);
-      doc.setTextColor(0);
-      doc.setFont('helvetica', 'normal');
-      y = 18;
-
-      setPdfStatus({ stage: 'Téléchargement des photos…', current: 0, total: totalPhotos });
-      let resizeDone = 0;
-      const resizePhotos = async (list, maxDim) => {
-        const out = [];
-        const BATCH = 4;
-        for (let i = 0; i < list.length; i += BATCH) {
-          const batch = list.slice(i, i + BATCH);
-          const results = await Promise.all(batch.map(async (ph) => {
-            try { const r = await resizeForPDF(ph.p.url, maxDim, ph.p.path); return { ...ph, dataUrl: r.dataUrl, w: r.w, h: r.h }; }
-            catch (e) { return { ...ph, dataUrl: null }; }
-          }));
-          out.push(...results);
-          resizeDone += results.length;
-          setPdfStatus({ stage: 'Téléchargement des photos…', current: resizeDone, total: totalPhotos });
-        }
-        return out;
-      };
-
-      const drawSectionTitle = (title, isSynth) => {
-        if (y + 9 > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
-        if (isSynth) { doc.setFillColor(200, 16, 46); doc.setTextColor(255); }
-        else { doc.setFillColor(232, 232, 232); doc.setTextColor(40); }
-        doc.rect(MARGIN, y, CONTENT_W, 6.5, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8.5);
-        doc.text((isSynth ? '* ' : '') + title, MARGIN + 2.5, y + 4.6);
-        doc.setTextColor(0);
-        doc.setFont('helvetica', 'normal');
-        y += 9;
-      };
-
-      const drawGrid = (photos, cols, highlight) => {
-        const GAP = 3;
-        const cellW = (CONTENT_W - (cols - 1) * GAP) / cols;
-        const cellH = cellW * 0.72;
-        const captionH = 5.5;
-        let col = 0;
-        for (let k = 0; k < photos.length; k++) {
-          const ph = photos[k];
-          if (col === 0 && y + cellH + captionH > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
-          const x = MARGIN + col * (cellW + GAP);
-          doc.setFillColor(240, 235, 224);
-          doc.rect(x, y, cellW, cellH, 'F');
-          if (ph.dataUrl && ph.w && ph.h) {
-            const pr = ph.w / ph.h, cr = cellW / cellH;
-            let dW, dH;
-            if (pr > cr) { dW = cellW; dH = cellW / pr; } else { dH = cellH; dW = cellH * pr; }
-            try { doc.addImage(ph.dataUrl, 'JPEG', x + (cellW - dW) / 2, y + (cellH - dH) / 2, dW, dH, undefined, 'FAST'); } catch (e) { console.warn('addImage', e); }
-          } else if (ph.dataUrl) {
-            try { doc.addImage(ph.dataUrl, 'JPEG', x, y, cellW, cellH, undefined, 'FAST'); } catch (e) {}
-          } else {
-            doc.setFontSize(6); doc.setTextColor(150);
-            doc.text('Image non dispo', x + cellW / 2, y + cellH / 2, { align: 'center' });
-            doc.setTextColor(0);
-          }
-          if (highlight) { doc.setDrawColor(200, 16, 46); doc.setLineWidth(0.6); doc.rect(x, y, cellW, cellH, 'S'); doc.setLineWidth(0.1); doc.setDrawColor(0); }
-          doc.setFontSize(5.5); doc.setTextColor(90);
-          const cap = `${ph.label} #${ph.num}`;
-          const maxLen = cols === 2 ? 60 : 40;
-          const t = cap.length > maxLen ? cap.slice(0, maxLen - 2) + '…' : cap;
-          doc.text(t, x, y + cellH + 3);
-          doc.setTextColor(0);
-          col++;
-          if (col === cols) { col = 0; y += cellH + captionH; }
-        }
-        if (col !== 0) { y += cellH + captionH; }
-      };
-
-      for (const g of photoGroups) {
-        const cols = g.isSynth ? 2 : 3;
-        const maxDim = g.isSynth ? 1400 : 1000;
-        const processed = await resizePhotos(g.photos, maxDim);
-        setPdfStatus({ stage: 'Mise en page des photos…', current: 0, total: g.photos.length });
-        drawSectionTitle(`${String(Math.floor(g.section.n)).padStart(2, '0')} - ${g.section.title}`, g.isSynth);
-        drawGrid(processed, cols, g.isSynth);
-        y += 3;
-      }
-    }
+    // (Les photos sont désormais intégrées par catégorie ci-dessus, juste après
+    //  les données de chaque section, et par question dans la synthèse — il n'y a
+    //  plus de page « photos » séparée en fin de document.)
 
     // ── FOOTER sur toutes les pages ──
     const totalPages = doc.getNumberOfPages();
