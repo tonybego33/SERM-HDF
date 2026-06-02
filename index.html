@@ -3659,7 +3659,7 @@ async function deleteVisiteRemote(gareName) {
 
 /* Real-time sync : refresh app state when teammates change data
    On écoute les 2 tables (responses pour les réponses, visite_meta pour les auteurs) */
-function setupRealtimeSync(onChange) {
+function setupRealtimeSync(onChange, isLocalEcho) {
   if (!supa) return () => {};
   try {
     let pullTimeout = null;
@@ -3672,9 +3672,16 @@ function setupRealtimeSync(onChange) {
         if (fresh) onChange(fresh);
       }, 400);
     };
+    // Ignore l'écho de NOS propres saisies : inutile de re-puller toute la table
+    // pour une modif qu'on a déjà en local (évite latence + flicker en saisie).
+    const handle = (payload) => {
+      const gn = payload?.new?.gare || payload?.old?.gare;
+      if (gn && isLocalEcho && isLocalEcho(gn)) return;
+      schedulePull();
+    };
     const channel = supa.channel('responses_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'responses' }, schedulePull)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'visite_meta' }, schedulePull)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'responses' }, handle)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'visite_meta' }, handle)
       .subscribe();
     return () => { try { supa.removeChannel(channel); } catch (e) {} };
   } catch (e) { console.warn('Realtime setup failed:', e); return () => {}; }
@@ -7038,6 +7045,11 @@ function App() {
           // On préserve les gares locales (prev) puis on applique fresh par-dessus
           // pour les gares présentes côté serveur. Le pendingState override en dernier.
           const merged = { ...prev, ...fresh };
+          const now = Date.now();
+          // Anti-flicker : garder le local pour les gares éditées très récemment
+          Object.keys(lastLocalEdit.current).forEach(gn => {
+            if (now - lastLocalEdit.current[gn] < PROTECT_MS && prev[gn]) merged[gn] = prev[gn];
+          });
           Object.keys(pendingState.current).forEach(gn => {
             merged[gn] = pendingState.current[gn];
           });
@@ -7059,7 +7071,6 @@ function App() {
   useEffect(() => {
     const teardownVis = setupRealtimeSync((fresh) => {
       setAll((prev) => {
-        // ⚠ Merge realtime - règle simple et FIABLE :
         // Pour toute gare présente dans pendingState (push en cours ou récemment
         // pushé, conf serveur pas encore retombée), on garde la version locale
         // SANS aucune condition de timestamp. Les timestamps locaux ne sont pas
@@ -7071,12 +7082,18 @@ function App() {
         // juste créée, ou modifs en pending). Puis on applique fresh par-dessus
         // pour chaque gare présente côté serveur. Puis pendingState override.
         const merged = { ...prev, ...fresh };
+        const now = Date.now();
+        // Anti-flicker : garder le local pour les gares éditées très récemment
+        // (couvre la course "pull lent vs push confirmé" qui faisait clignoter).
+        Object.keys(lastLocalEdit.current).forEach(gn => {
+          if (now - lastLocalEdit.current[gn] < PROTECT_MS && prev[gn]) merged[gn] = prev[gn];
+        });
         Object.keys(pendingState.current).forEach(gn => {
           merged[gn] = pendingState.current[gn];
         });
         return merged;
       });
-    });
+    }, (gn) => !!pendingState.current[gn] || (Date.now() - (lastLocalEdit.current[gn] || 0) < PROTECT_MS));
     const teardownGri = setupGrilleRealtime(() => bumpGrid());
     return () => { teardownVis(); teardownGri(); };
   }, [bumpGrid]);
@@ -7144,6 +7161,11 @@ function App() {
   // v71 : buffer des critères modifiés à push (par gare)
   const pendingCriteres = useRef({}); // gareName -> Set<critereId>
   const pendingMetaFlag = useRef({}); // gareName -> bool (meta visite à push)
+  // Anti-flicker : timestamp (ms) de la dernière saisie locale par gare. Tant
+  // qu'une gare a été éditée récemment (< PROTECT_MS), un pull serveur ne peut
+  // PAS écraser sa version locale (couvre la course pull-lent / push-confirmé).
+  const lastLocalEdit = useRef({});
+  const PROTECT_MS = 15000;
 
   const debouncedPush = useCallback((visite) => {
     const gn = visite.gare;
@@ -7223,6 +7245,7 @@ function App() {
     }
 
     setAll((a) => ({ ...a, [v.gare]: updated }));
+    lastLocalEdit.current[v.gare] = Date.now();
     debouncedPush(updated);
   };
 
@@ -8074,6 +8097,33 @@ function App() {
     return String(v);
   };
 
+  // Couleur sémantique d'une réponse de synthèse (encadré sur la fiche A4) :
+  // vert = bon, vert clair = plutôt bon, orange = vigilance, rouge = problème.
+  // Convention de la grille : pour tout rating, label[0] = le pire, dernier = le meilleur.
+  const synthAnswerColor = (c, raw) => {
+    if (raw && typeof raw === 'object' && raw.na === true) return null;
+    const v = getVal(raw);
+    if (v == null || v === '') return null;
+    if (c.type === 'rating' && c.labels && typeof v === 'number') {
+      const n = c.labels.length;
+      const idx = Math.round(v * (n - 1));
+      const t = n > 1 ? idx / (n - 1) : 1; // 0 = pire, 1 = meilleur
+      if (t <= 0.001) return { bg: [192, 57, 43], fg: [255, 255, 255] };   // rouge
+      if (t < 0.4)    return { bg: [211, 84, 0],  fg: [255, 255, 255] };   // orange foncé
+      if (t < 0.75)   return { bg: [168, 209, 158], fg: [30, 30, 30] };    // vert clair
+      return { bg: [39, 174, 96], fg: [255, 255, 255] };                   // vert
+    }
+    if (c.type === 'yesno' && (v === 'yes' || v === 'no')) {
+      // Questions "négatives" (alerte, manque, danger…) : Oui = problème = rouge.
+      const negative = /alerte|manque|danger|risqu|satur|vétust|probl/i.test(c.label || '');
+      const RED = { bg: [192, 57, 43], fg: [255, 255, 255] };
+      const GREEN = { bg: [39, 174, 96], fg: [255, 255, 255] };
+      if (negative) return v === 'yes' ? RED : GREEN;
+      return v === 'yes' ? GREEN : RED;
+    }
+    return null;
+  };
+
   const [pdfStatus, setPdfStatus] = useState(null); // { stage, current, total } | null
 
   const buildPDFForGare = async (gare, visite, returnBlob = false) => {
@@ -8288,14 +8338,29 @@ function App() {
         doc.text(labelLines, MARGIN + 2, y + 3.5);
         y += labelLines.length * 4.2 + 1;
 
-        // Réponse
+        // Réponse : encadré coloré selon le sens (vert=bon … rouge=problème)
         if (hasVal) {
-          doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(200, 16, 46);
-          const vLines = doc.splitTextToSize('Réponse : ' + val, CONTENT_W - 4);
-          if (y + vLines.length * 4.2 > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
-          doc.text(vLines, MARGIN + 2, y + 3);
-          y += vLines.length * 4.2 + 0.5;
-          doc.setTextColor(0);
+          const col = synthAnswerColor(c, raw);
+          if (col) {
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+            const padX = 3, badgeH = 6.4;
+            const tw = doc.getTextWidth(val);
+            const badgeW = Math.min(CONTENT_W, tw + padX * 2);
+            if (y + badgeH > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
+            doc.setFillColor(col.bg[0], col.bg[1], col.bg[2]);
+            doc.roundedRect(MARGIN + 2, y, badgeW, badgeH, 1.2, 1.2, 'F');
+            doc.setTextColor(col.fg[0], col.fg[1], col.fg[2]);
+            doc.text(val, MARGIN + 2 + padX, y + badgeH / 2 + 1.4);
+            doc.setTextColor(0);
+            y += badgeH + 1.5;
+          } else {
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(200, 16, 46);
+            const vLines = doc.splitTextToSize('Réponse : ' + val, CONTENT_W - 4);
+            if (y + vLines.length * 4.2 > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
+            doc.text(vLines, MARGIN + 2, y + 3);
+            y += vLines.length * 4.2 + 0.5;
+            doc.setTextColor(0);
+          }
         }
 
         // Commentaire
