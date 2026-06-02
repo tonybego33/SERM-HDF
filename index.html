@@ -8322,26 +8322,45 @@ function App() {
         if (ph.length) synthPhotosByCrit[c.id] = await resizePhotos(ph, 1400);
       }
 
+      // En-tête de groupe (Verdict global, Ressenti sensible, Alertes…) : n'apparaît
+      // que s'il y a au moins une question renseignée dans le groupe.
+      const drawSubhead = (title) => {
+        if (y + 11 > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
+        y += 2;
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(120);
+        doc.text(title.toUpperCase(), MARGIN + 2, y + 3);
+        doc.setDrawColor(210, 205, 195); doc.setLineWidth(0.3);
+        doc.line(MARGIN + 2, y + 4.6, PAGE_W - MARGIN, y + 4.6);
+        doc.setDrawColor(0); doc.setLineWidth(0.1); doc.setTextColor(0);
+        y += 7.5;
+      };
+
       let anySynth = false;
-      for (const c of synthItems) {
+      let pendingSubhead = null;
+      const renderList = (synthSection.criteria || []).filter(c => c.type !== 'text');
+      for (const c of renderList) {
+        if (c.type === 'subhead') { pendingSubhead = c.label; continue; }
         const raw = visite.data?.[c.id];
         const val = formatValForPDF(c, raw);
         const note = raw?.note ? String(raw.note) : '';
         const photos = synthPhotosByCrit[c.id] || [];
         const hasVal = raw != null && val !== '-';
         if (!hasVal && !note && photos.length === 0) continue; // question vide -> ignorée
+        if (pendingSubhead) { drawSubhead(pendingSubhead); pendingSubhead = null; }
         anySynth = true;
         // Couleur sémantique de la question (sert au badge, au commentaire et aux photos)
         const col = hasVal ? synthAnswerColor(c, raw) : null;
         const accent = col ? col.bg : [150, 150, 150];
 
-        if (y + 14 > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
+        if (y + 20 > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
 
-        // Question (gras)
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(30);
-        const labelLines = doc.splitTextToSize(c.label, CONTENT_W - 4);
-        doc.text(labelLines, MARGIN + 2, y + 3.5);
-        y += labelLines.length * 4.2 + 1;
+        // Question : pastille de couleur + libellé bien lisible (c'est LA question posée)
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(26, 26, 26);
+        const labelLines = doc.splitTextToSize(c.label, CONTENT_W - 8);
+        doc.setFillColor(accent[0], accent[1], accent[2]);
+        doc.rect(MARGIN + 2, y + 0.7, 2.6, 2.6, 'F');
+        doc.text(labelLines, MARGIN + 6.5, y + 3);
+        y += labelLines.length * 4.7 + 2;
 
         // Réponse : encadré coloré selon le sens (vert=bon … rouge=problème)
         if (hasVal) {
@@ -8387,9 +8406,9 @@ function App() {
 
         // Séparateur entre questions
         doc.setDrawColor(225, 215, 200); doc.setLineWidth(0.2);
-        doc.line(MARGIN, y + 0.5, PAGE_W - MARGIN, y + 0.5);
+        doc.line(MARGIN, y + 1.2, PAGE_W - MARGIN, y + 1.2);
         doc.setDrawColor(0); doc.setLineWidth(0.1);
-        y += 4;
+        y += 5.5;
       }
       if (!anySynth) {
         doc.setFontSize(8.5); doc.setTextColor(120); doc.setFont('helvetica', 'italic');
