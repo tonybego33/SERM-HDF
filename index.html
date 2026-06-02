@@ -8260,7 +8260,7 @@ function App() {
       return arr;
     };
 
-    const drawGrid = (photos, cols, highlight) => {
+    const drawGrid = (photos, cols, borderColor) => {
       const GAP = 3;
       const cellW = (CONTENT_W - (cols - 1) * GAP) / cols;
       const cellH = cellW * 0.72;
@@ -8284,7 +8284,7 @@ function App() {
           doc.text('Image non dispo', x + cellW / 2, y + cellH / 2, { align: 'center' });
           doc.setTextColor(0);
         }
-        if (highlight) { doc.setDrawColor(200, 16, 46); doc.setLineWidth(0.6); doc.rect(x, y, cellW, cellH, 'S'); doc.setLineWidth(0.1); doc.setDrawColor(0); }
+        if (borderColor) { doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]); doc.setLineWidth(0.8); doc.rect(x, y, cellW, cellH, 'S'); doc.setLineWidth(0.1); doc.setDrawColor(0); }
         doc.setFontSize(5.5); doc.setTextColor(90);
         const cap = `${ph.label} #${ph.num}`;
         const maxLen = cols === 2 ? 60 : 40;
@@ -8296,6 +8296,8 @@ function App() {
       }
       if (col !== 0) { y += cellH + captionH; }
     };
+    // Teinte pâle d'une couleur (pour fond de commentaire lisible)
+    const pale = (rgb) => [Math.round(rgb[0] + (255 - rgb[0]) * 0.84), Math.round(rgb[1] + (255 - rgb[1]) * 0.84), Math.round(rgb[2] + (255 - rgb[2]) * 0.84)];
 
     // ───────────────────────────────────────────────────────────────
     // 1. SYNTHÈSE — le cœur : par question -> réponse + commentaire + photo
@@ -8329,6 +8331,9 @@ function App() {
         const hasVal = raw != null && val !== '-';
         if (!hasVal && !note && photos.length === 0) continue; // question vide -> ignorée
         anySynth = true;
+        // Couleur sémantique de la question (sert au badge, au commentaire et aux photos)
+        const col = hasVal ? synthAnswerColor(c, raw) : null;
+        const accent = col ? col.bg : [150, 150, 150];
 
         if (y + 14 > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
 
@@ -8340,7 +8345,6 @@ function App() {
 
         // Réponse : encadré coloré selon le sens (vert=bon … rouge=problème)
         if (hasVal) {
-          const col = synthAnswerColor(c, raw);
           if (col) {
             doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
             const padX = 3, badgeH = 6.4;
@@ -8363,22 +8367,23 @@ function App() {
           }
         }
 
-        // Commentaire
+        // Commentaire : fond pâle teinté de la couleur de la réponse + filet assorti
         if (note) {
           doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
           const nLines = doc.splitTextToSize(note, CONTENT_W - 7);
           const blockH = nLines.length * 4 + 3;
           if (y + blockH > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
-          doc.setFillColor(248, 246, 240); doc.rect(MARGIN, y, CONTENT_W, blockH, 'F');
-          doc.setFillColor(200, 16, 46); doc.rect(MARGIN, y, 1, blockH, 'F');
+          const bg = col ? pale(col.bg) : [248, 246, 240];
+          doc.setFillColor(bg[0], bg[1], bg[2]); doc.rect(MARGIN, y, CONTENT_W, blockH, 'F');
+          doc.setFillColor(accent[0], accent[1], accent[2]); doc.rect(MARGIN, y, 1.5, blockH, 'F');
           doc.setTextColor(40);
-          doc.text(nLines, MARGIN + 3.5, y + 3.5);
+          doc.text(nLines, MARGIN + 4, y + 3.5);
           y += blockH + 1.5;
           doc.setTextColor(0);
         }
 
-        // Photo(s) de la question (grille 2 colonnes, encadrées)
-        if (photos.length) { y += 0.5; drawGrid(photos, 2, true); }
+        // Photo(s) de la question : bordure de la couleur de la réponse
+        if (photos.length) { y += 0.5; drawGrid(photos, 2, col ? col.bg : [205, 198, 185]); }
 
         // Séparateur entre questions
         doc.setDrawColor(225, 215, 200); doc.setLineWidth(0.2);
