@@ -1603,8 +1603,29 @@ function Stamp({ children, color = 'var(--red)' }) {
 
 
 
+/* Compteur animé — count-up à l'ouverture seulement (puis suit la valeur live) */
+function useCountUp(target, ms = 850) {
+  const [n, setN] = useState(0);
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current) { setN(target); return; }
+    let raf, t0;
+    const step = (t) => {
+      if (!t0) t0 = t;
+      const p = Math.min(1, (t - t0) / ms);
+      setN(Math.round(target * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) raf = requestAnimationFrame(step); else done.current = true;
+    };
+    raf = requestAnimationFrame(step);
+    // Filet de sécurité : garantit la valeur finale même si rAF est throttlé
+    const safety = setTimeout(() => { setN(target); done.current = true; }, ms + 350);
+    return () => { cancelAnimationFrame(raf); clearTimeout(safety); };
+  }, [target]);
+  return n;
+}
+
 /* ============================================================
-   HERO ACCUEIL - carte plein-bleed (piste C)
+   HERO ACCUEIL
    ============================================================ */
 function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, totalGares, onPick, onOpen, onExportAll }) {
   const cuDone = useCountUp(fullyDone);
