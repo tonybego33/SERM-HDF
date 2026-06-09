@@ -1077,8 +1077,9 @@ function setupRealtimeSync(onChange, isLocalEcho) {
       // grâce à l'archivage.
       if (pullTimeout) clearTimeout(pullTimeout);
       pullTimeout = setTimeout(async () => {
+        const startedAt = Date.now();
         const fresh = await withTimeout(pullAllFromSupa());
-        if (fresh) onChange(fresh);
+        if (fresh) onChange(fresh, startedAt);
       }, 400);
     };
     const handle = (payload) => {
@@ -1142,7 +1143,7 @@ async function compressImage(file, opts = {}) {
   });
 }
 
-async function uploadPhoto(gareName, critId, file) {
+async function uploadPhoto(gareName, critId, file, opts = {}) {
   // Compression systématique (pas de mode HD)
   const originalSize = file.size;
   let toUpload = file;
@@ -1189,6 +1190,13 @@ async function uploadPhoto(gareName, critId, file) {
 
   // Si pas de Supabase ou pas de réseau → fallback direct
   if (!supa || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+    return goOffline();
+  }
+
+  // Mode "aperçu immédiat" : on rend tout de suite une photo locale (pending),
+  // l'upload réseau se fera en arrière-plan via retryPendingPhotos (déclenché
+  // automatiquement par pendingCount). → la photo s'affiche INSTANTANÉMENT.
+  if (opts.localOnly) {
     return goOffline();
   }
 
@@ -1388,7 +1396,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 1';
+const APP_VERSION = 'v2026-06-09 · 2';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
@@ -2827,7 +2835,9 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
     let next = [...photos];
     for (const file of files) {
       try {
-        const photo = await uploadPhoto(gareName, c.id, file);
+        // Aperçu LOCAL immédiat (compression rapide, pas d'attente réseau).
+        // L'upload Storage se fait ensuite en arrière-plan (retryPendingPhotos).
+        const photo = await uploadPhoto(gareName, c.id, file, { localOnly: true });
         next = [...next, photo];
         onSetPhotos(next);
         const fmtSize = (b) => b > 1024*1024 ? `${(b/1024/1024).toFixed(1)} MB` : `${Math.round(b/1024)} KB`;
@@ -2835,7 +2845,7 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
         if (onToast) onToast(msg, 'success');
       } catch (err) {
         console.warn('Upload error:', err);
-        if (onToast) onToast('⚠ Échec upload', 'error');
+        if (onToast) onToast('⚠ Échec ajout photo', 'error');
       }
     }
     setUploading(false);
@@ -4221,15 +4231,19 @@ function App() {
 
   // Real-time sync : refresh when teammates push changes
   useEffect(() => {
-    const teardownVis = setupRealtimeSync((fresh) => {
+    const teardownVis = setupRealtimeSync((fresh, pullStartedAt) => {
       setAll((prev) => {
         // On part de prev pour préserver les gares locales pas (encore) côté
         // serveur, puis on applique l'état frais complet par-dessus. Puis on
         // re-protège ma saisie en cours (pendingState + édition très récente).
         const merged = { ...prev, ...fresh };
-        const now = Date.now();
+        const cutoff = pullStartedAt || Date.now();
         Object.keys(lastLocalEdit.current).forEach(gn => {
-          if (now - lastLocalEdit.current[gn] < PROTECT_MS && prev[gn]) merged[gn] = prev[gn];
+          // Pull PÉRIMÉ pour cette gare : je l'ai éditée APRÈS le départ du pull,
+          // donc ses données ne contiennent pas ma saisie → garder le local.
+          // (couvre le cas "rechargement lent qui revient après ma saisie" =
+          //  le flicker "ça disparaît puis réapparaît").
+          if (lastLocalEdit.current[gn] >= cutoff && prev[gn]) merged[gn] = prev[gn];
         });
         Object.keys(pendingState.current).forEach(gn => {
           merged[gn] = pendingState.current[gn];
