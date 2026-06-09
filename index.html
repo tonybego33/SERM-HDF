@@ -953,7 +953,7 @@ async function deleteCritereFromSupa(gareName, critereId) {
 // Garde-fou anti-blocage : empêche une requête réseau qui traîne (5G instable)
 // de bloquer indéfiniment (spinner infini). Résout à null après `ms` si rien
 // n'est revenu → l'appli ne se fige plus, on retentera au prochain cycle.
-function withTimeout(promise, ms = 15000) {
+function withTimeout(promise, ms = 45000) {
   return Promise.race([
     promise,
     new Promise((resolve) => setTimeout(() => resolve(null), ms)),
