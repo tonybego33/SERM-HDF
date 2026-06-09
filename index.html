@@ -1645,7 +1645,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 14';
+const APP_VERSION = 'v2026-06-09 · 15';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
@@ -4433,7 +4433,17 @@ function App() {
       });
       showToast(`${changedCriteres.length} photo(s) envoyée(s) ✓`, 'success');
       setRetryingPhotos(null);
-    }).catch(() => { if (!cancelled) setRetryingPhotos(null); });
+    }).catch(() => {}).finally(() => {
+      // ⚠ FIX "photo en attente à vie" (multi-utilisateurs) : on remet TOUJOURS le
+      // drapeau à zéro, même si ce run a été annulé parce que `all` a changé en plein
+      // envoi (fréquent à plusieurs : chaque delta realtime change `all` → l'effet est
+      // annulé/relancé). Avant, un run annulé sortait sans réinitialiser retryingPhotos
+      // → le drapeau restait "occupé" → ré-essai bloqué à vie → photo bloquée "en attente".
+      setRetryingPhotos(null);
+      // Run interrompu en vol : on relance proprement un cycle (le suivant repartira de
+      // l'état à jour) pour ne pas attendre la minuterie de 25 s.
+      if (cancelled) setRetryTick((t) => t + 1);
+    });
     return () => { cancelled = true; };
     // eslint-disable-next-line
   }, [isOnline, pendingCount, retryTick]);
