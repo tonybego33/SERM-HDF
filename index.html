@@ -856,31 +856,49 @@ function stripPendingPhotosForServer(value) {
   return { ...value, photos: kept };
 }
 // Fusionne les photos d'une valeur SERVEUR avec les photos LOCALES, par identité
-// (blobId, sinon url). Règles, dans l'ordre :
-//  • on ne PERD jamais une photo locale absente du serveur (→ elle ne "disparaît"
-//    plus juste après l'upload, et une photo en attente reste visible) ;
-//  • une version UPLOADÉE (https) gagne TOUJOURS sur une version en attente (blob)
-//    du même cliché (→ plus de retour en "en attente", plus de clignotement).
-// C'est ce qui rend l'affichage des photos stable quel que soit l'ordre d'arrivée
-// des événements temps-réel.
+// (blobId, sinon url). Règles :
+//  • une version UPLOADÉE (https) gagne toujours sur l'en-attente (blob) du même
+//    cliché → plus de retour en "en attente", plus de clignotement ;
+//  • une photo encore EN ATTENTE chez moi (pas uploadée) est TOUJOURS conservée
+//    (le serveur ne peut pas encore l'avoir) ;
+//  • pour une photo locale déjà uploadée mais ABSENTE du serveur : on la garde si MA
+//    version est plus récente (`_at`), sinon on la retire → c'est ce qui fait que les
+//    SUPPRESSIONS se propagent (la dernière action gagne) sans faire "disparaître" une
+//    photo juste uploadée (sa version locale est plus récente que l'ancien message).
 function reconcilePhotos(serverVal, localVal) {
   const incArr = (serverVal && typeof serverVal === 'object' && Array.isArray(serverVal.photos)) ? serverVal.photos : null;
   const locArr = (localVal && typeof localVal === 'object' && Array.isArray(localVal.photos)) ? localVal.photos : null;
   if (!incArr && !locArr) return serverVal;
-  const keyOf = (p, fallback) => (p && (p.blobId || p.url)) || fallback;
+  const incAt = (serverVal && typeof serverVal === 'object' && serverVal._at) || 0;
+  const locAt = (localVal && typeof localVal === 'object' && localVal._at) || 0;
+  const localIsNewer = locAt > incAt;
+  const keyOf = (p, fb) => (p && (p.blobId || p.url)) || fb;
+  const incMap = new Map();
+  (incArr || []).forEach((p, i) => incMap.set(keyOf(p, 'I' + i), p));
   const order = [];
-  const map = new Map();
-  (locArr || []).forEach((p, i) => { const k = keyOf(p, 'L' + i); if (!map.has(k)) order.push(k); map.set(k, p); });
+  const result = new Map();
+  // 1. Décide du sort de chaque photo LOCALE
+  (locArr || []).forEach((p, i) => {
+    const k = keyOf(p, 'L' + i);
+    const inc = incMap.get(k);
+    if (inc) {
+      // présente des deux côtés → uploadée gagne sur en-attente, sinon serveur
+      const best = (isUploadedPhoto(inc) && !isUploadedPhoto(p)) ? inc
+                 : (isUploadedPhoto(p) && !isUploadedPhoto(inc)) ? p
+                 : inc;
+      order.push(k); result.set(k, best);
+    } else if (isMyPending(p) || localIsNewer) {
+      // en attente chez moi → toujours gardée ; sinon gardée seulement si je suis plus récent
+      order.push(k); result.set(k, p);
+    }
+    // sinon : photo absente du serveur ET serveur plus récent → suppression → on retire
+  });
+  // 2. Photos présentes côté serveur mais pas en local → on les ajoute
   (incArr || []).forEach((p, i) => {
     const k = keyOf(p, 'I' + i);
-    const existing = map.get(k);
-    if (!existing) { order.push(k); map.set(k, p); return; }
-    const pUp = isUploadedPhoto(p), eUp = isUploadedPhoto(existing);
-    if (pUp && !eUp) map.set(k, p);           // l'uploadée gagne sur l'en-attente
-    else if (!pUp && eUp) { /* on garde l'uploadée locale */ }
-    else map.set(k, p);                        // même statut → on prend la version serveur
+    if (!result.has(k)) { order.push(k); result.set(k, p); }
   });
-  const photos = order.map(k => map.get(k));
+  const photos = order.map(k => result.get(k));
   const base = (serverVal && typeof serverVal === 'object' && !Array.isArray(serverVal))
     ? serverVal : (serverVal !== undefined && serverVal !== null ? { val: serverVal } : {});
   return { ...base, photos };
@@ -1525,7 +1543,9 @@ async function retryPendingPhotos(all, onProgress) {
           newPhotos.push(p);
         }
       }
-      if (visiteChanged) newData[critId] = { ...value, photos: newPhotos };
+      // _at bumpé : la version uploadée devient la PLUS RÉCENTE → un ancien message
+      // "sans photo" (envoi initial) ne peut plus la faire disparaître (cf. reconcilePhotos).
+      if (visiteChanged) newData[critId] = { ...value, photos: newPhotos, _at: Date.now() };
     }
     if (visiteChanged) {
       next[gareName] = { ...visite, data: newData, updated: Date.now() };
@@ -1625,7 +1645,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 13';
+const APP_VERSION = 'v2026-06-09 · 14';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
@@ -4392,7 +4412,7 @@ function App() {
           const baseObj = (currentVal && typeof currentVal === 'object' && !Array.isArray(currentVal))
             ? currentVal
             : (currentVal !== undefined ? { val: currentVal } : {});
-          const newData = { ...currentVisite.data, [critId]: { ...baseObj, photos: retryVal.photos } };
+          const newData = { ...currentVisite.data, [critId]: { ...baseObj, photos: retryVal.photos, _at: retryVal._at || baseObj._at } };
           merged[gn] = { ...currentVisite, data: newData };
         });
         return merged;
