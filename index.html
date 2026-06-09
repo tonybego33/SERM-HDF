@@ -278,12 +278,10 @@ const GARES = [
    cette liste (les données reviennent au prochain ACTUALISER).
    ============================================================ */
 const ARCHIVED = new Set([
-  "Hellemmes", "Pont de Bois", "Baisieux", "Lille Porte de Douai", "Saint-André-lez-Lille",
-  "La Madeleine", "Lille CHR", "Loos lez Lille", "Lomme", "Lille Délivrance", "Haubourdin",
-  "Sequedin", "Lezennes", "Lille Sud", "Armentières", "Marquillies", "Don - Sainghin",
-  "Pérenchies", "Nieppe", "Steenwerck", "Santes", "Wavrin", "Bailleul", "Strazeele",
-  "Hazebrouck", "Ascq", "Croix - Wasquehal", "Annappes", "Croix L'Allumette",
-  "Tourcoing", "Roubaix"
+  // Liste vidée le 09/06 : toutes les gares précédemment archivées sont de nouveau
+  // affichées. L'archivage ne masquait QUE l'affichage dans la liste « Sur le terrain » ;
+  // aucune donnée n'était supprimée et les autres gares n'étaient pas affectées.
+  // Pour ré-archiver une gare, remets simplement son nom ici.
 ]);
 // Noms des gares encore actives (= non archivées) → utilisé pour ne charger
 // QUE celles-ci depuis Supabase (filtre serveur, requêtes allégées).
@@ -1187,6 +1185,16 @@ function applyResponseDelta(prev, payload, pendingCrit) {
   const val = payload?.new ? payload.new.value : undefined;
   if (isDelete || val === null || val === undefined) {
     if (!(cid in newData)) return prev; // déjà absent → rien à faire
+    // ⚠ FIX "photo en attente perdue" : on NE supprime PAS un critère qui contient une
+    // de MES photos encore en attente d'upload. Un événement realtime arrive parfois
+    // TRONQUÉ en free tier (payload.new vide/partiel) et serait pris pour une suppression
+    // → le critère, et donc la photo pas encore montée, disparaîtrait définitivement (ni
+    // local ni serveur). Une réponse texte se récupère au prochain pull, mais une photo
+    // en attente n'existe QUE en local : il faut la garder jusqu'à ce que le retry la monte.
+    const localCur = newData[cid];
+    const hasMyPending = localCur && typeof localCur === 'object'
+      && Array.isArray(localCur.photos) && localCur.photos.some(isMyPending);
+    if (hasMyPending) return prev; // on garde le critère tel quel ; le retry finira l'upload
     delete newData[cid];
   } else {
     // On préserve MES photos en attente (le serveur n'en stocke jamais) : elles ne
@@ -1647,7 +1655,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 18';
+const APP_VERSION = 'v2026-06-09 · 20';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
