@@ -2,6 +2,9 @@
 
 
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#C8102E">
 <title>GARÉo · Relevé terrain SERM HDF</title>
@@ -1063,20 +1066,29 @@ async function deleteVisiteRemote(gareName) {
 
 /* Real-time sync : refresh app state when teammates change data
    On écoute les 2 tables (responses pour les réponses, visite_meta pour les auteurs) */
-function setupRealtimeSync(onRow) {
+function setupRealtimeSync(onChange, isLocalEcho) {
   if (!supa) return () => {};
   try {
-    // Temps réel DIRECT : l'événement Supabase contient déjà la ligne modifiée.
-    // On applique CE seul changement immédiatement, sans recharger toute la base
-    // → instantané, et reste rapide quelle que soit la taille des données.
-    const handle = (table) => (payload) => {
+    let pullTimeout = null;
+    const schedulePull = () => {
+      // Debounce : si plusieurs events arrivent en rafale (multi-user), on attend
+      // que ça se calme, puis on recharge l'ÉTAT COMPLET. Approche auto-réparatrice
+      // (on ne dépend pas de recevoir chaque event) — rapide car peu de données
+      // grâce à l'archivage.
+      if (pullTimeout) clearTimeout(pullTimeout);
+      pullTimeout = setTimeout(async () => {
+        const fresh = await withTimeout(pullAllFromSupa());
+        if (fresh) onChange(fresh);
+      }, 400);
+    };
+    const handle = (payload) => {
       const gn = payload?.new?.gare || payload?.old?.gare;
-      if (!gn || ARCHIVED.has(gn)) return; // gare inconnue / archivée : on ignore
-      onRow(table, payload);
+      if (gn && isLocalEcho && isLocalEcho(gn)) return; // n'écrase pas ma saisie en cours
+      schedulePull();
     };
     const channel = supa.channel('responses_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'responses' }, handle('responses'))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'visite_meta' }, handle('visite_meta'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'responses' }, handle)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'visite_meta' }, handle)
       .subscribe();
     return () => { try { supa.removeChannel(channel); } catch (e) {} };
   } catch (e) { console.warn('Realtime setup failed:', e); return () => {}; }
@@ -1372,6 +1384,11 @@ function hydrateSections(secs) {
 // déplacement entre sections, etc.) pour forcer la mise à jour automatique
 // de la grille Supabase chez tous les utilisateurs au prochain chargement.
 const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
+/* Version de l'APP affichée à l'écran : permet de vérifier d'un coup d'œil que
+   tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
+   versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
+   À incrémenter à chaque déploiement. */
+const APP_VERSION = 'v2026-06-09 · 1';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
@@ -4204,38 +4221,22 @@ function App() {
 
   // Real-time sync : refresh when teammates push changes
   useEffect(() => {
-    const teardownVis = setupRealtimeSync((table, payload) => {
-      const gn = payload?.new?.gare || payload?.old?.gare;
-      if (!gn) return;
+    const teardownVis = setupRealtimeSync((fresh) => {
       setAll((prev) => {
-        const cur = prev[gn] || { gare: gn, data: {}, updated: 0, auteur: 'Anonyme' };
-        // --- meta visite (auteurs) ---
-        if (table === 'visite_meta') {
-          const auteur = payload?.new?.auteurs;
-          if (!auteur || auteur === cur.auteur) return prev;
-          return { ...prev, [gn]: { ...cur, auteur } };
-        }
-        // --- réponse (un critère) ---
-        const cid = payload?.new?.critere_id || payload?.old?.critere_id;
-        if (!cid) return prev;
-        // Protège MA saisie en cours sur CE critère précis : si j'ai une modif
-        // non encore poussée dessus, je n'applique pas l'événement (évite que
-        // mon propre écho — ou une modif concurrente — écrase ce que je tape).
-        // Les autres critères de la même gare, eux, se mettent bien à jour.
-        if (pendingCriteres.current[gn] && pendingCriteres.current[gn].has(cid)) return prev;
-        const data = { ...cur.data };
-        const val = payload?.new?.value;
-        if (payload.eventType === 'DELETE' || val === null || val === undefined) {
-          if (!(cid in data)) return prev; // déjà absent → rien à faire
-          delete data[cid];
-        } else {
-          if (JSON.stringify(data[cid]) === JSON.stringify(val)) return prev; // déjà à jour
-          data[cid] = val;
-        }
-        const ts = payload?.new?.updated_at ? new Date(payload.new.updated_at).getTime() : Date.now();
-        return { ...prev, [gn]: { ...cur, data, updated: Math.max(cur.updated || 0, ts) } };
+        // On part de prev pour préserver les gares locales pas (encore) côté
+        // serveur, puis on applique l'état frais complet par-dessus. Puis on
+        // re-protège ma saisie en cours (pendingState + édition très récente).
+        const merged = { ...prev, ...fresh };
+        const now = Date.now();
+        Object.keys(lastLocalEdit.current).forEach(gn => {
+          if (now - lastLocalEdit.current[gn] < PROTECT_MS && prev[gn]) merged[gn] = prev[gn];
+        });
+        Object.keys(pendingState.current).forEach(gn => {
+          merged[gn] = pendingState.current[gn];
+        });
+        return merged;
       });
-    });
+    }, (gn) => !!pendingState.current[gn] || (Date.now() - (lastLocalEdit.current[gn] || 0) < PROTECT_MS));
     const teardownGri = setupGrilleRealtime(() => bumpGrid());
     return () => { teardownVis(); teardownGri(); };
   }, [bumpGrid]);
@@ -5741,6 +5742,11 @@ function App() {
         minHeight: '100dvh', background: 'var(--ink)', position: 'relative', overflow: 'hidden',
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
       }}>
+        <div style={{
+          position: 'fixed', bottom: 8, right: 10, zIndex: 50,
+          fontSize: 11, fontFamily: 'monospace', letterSpacing: '0.02em',
+          color: 'rgba(245,242,235,0.55)', userSelect: 'all'
+        }}>{APP_VERSION}</div>
         {/* Fond technique discret : halo accent + trame ferroviaire + grille de gares */}
         <div aria-hidden style={{
           position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.55,
@@ -5846,6 +5852,11 @@ function App() {
         gridRev={gridRev} />
       <Toast toast={toast} />
       <PDFProgressOverlay status={pdfStatus} />
+      <div style={{
+        position: 'fixed', bottom: 6, right: 8, zIndex: 50,
+        fontSize: 11, fontFamily: 'monospace', letterSpacing: '0.02em',
+        color: 'rgba(26,26,26,0.40)', pointerEvents: 'none'
+      }}>{APP_VERSION}</div>
     </>;
   }
   if (route.name === 'picker') {
