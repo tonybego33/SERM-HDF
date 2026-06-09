@@ -936,39 +936,37 @@ async function restoreBlobUrls(all) {
 // Push UN critère modifié vers Supabase (granularité fine)
 async function pushCritereToSupa(gareName, critereId, value, auteur) {
   if (!supa) return;
-  try {
-    const { error } = await supa.from('responses').upsert({
-      gare: gareName,
-      critere_id: critereId,
-      value: value === undefined ? null : value,
-      auteur: auteur || 'Anonyme',
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'gare,critere_id' });
-    if (error) console.warn('Supabase responses upsert:', error);
-  } catch (e) { console.warn('Push critère failed:', e); }
+  // ⚠ On LÈVE l'erreur (au lieu de l'avaler) : c'est ce qui permet à l'appelant
+  // de savoir qu'un envoi a échoué et de le rejouer. Sans ça, sur réseau
+  // instable, les saisies étaient "perdues en silence" côté serveur.
+  const { error } = await supa.from('responses').upsert({
+    gare: gareName,
+    critere_id: critereId,
+    value: value === undefined ? null : value,
+    auteur: auteur || 'Anonyme',
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'gare,critere_id' });
+  if (error) throw error;
 }
 
 // Push la meta visite (auteurs, météo, date_visite) - peu fréquent
 async function pushVisiteMetaToSupa(v) {
   if (!supa) return;
-  try {
-    const { error } = await supa.from('visite_meta').upsert({
-      gare: v.gare,
-      auteurs: v.auteur || 'Anonyme',
-      date_visite: v.data?.visite_date || null,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'gare' });
-    if (error) console.warn('Supabase visite_meta upsert:', error);
-  } catch (e) { console.warn('Push meta failed:', e); }
+  const { error } = await supa.from('visite_meta').upsert({
+    gare: v.gare,
+    auteurs: v.auteur || 'Anonyme',
+    date_visite: v.data?.visite_date || null,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'gare' });
+  if (error) throw error;
 }
 
 // Supprime un critère côté serveur (utilisé quand on clear une réponse)
 async function deleteCritereFromSupa(gareName, critereId) {
   if (!supa) return;
-  try {
-    await supa.from('responses').delete()
-      .eq('gare', gareName).eq('critere_id', critereId);
-  } catch (e) { console.warn('Delete critère failed:', e); }
+  const { error } = await supa.from('responses').delete()
+    .eq('gare', gareName).eq('critere_id', critereId);
+  if (error) throw error;
 }
 
 /* Pull tous les responses + visite_meta, reconstruit la structure `all` */
@@ -1396,7 +1394,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 2';
+const APP_VERSION = 'v2026-06-09 · 3';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
@@ -4157,8 +4155,14 @@ function App() {
       const me = auteur || (typeof localStorage !== 'undefined' ? localStorage.getItem('serm-auteur') : null) || 'Anonyme';
       changedCriteres.forEach(({ gn, critId, retryVal }) => {
         // On push la valeur du critère telle qu'elle est en local APRÈS retry
-        // (avec les nouvelles URLs des photos uploadées)
-        pushCritereToSupa(gn, critId, retryVal, me);
+        // (avec les nouvelles URLs des photos uploadées). Si l'envoi échoue, on
+        // met le critère en file d'attente → le ré-essai périodique le rejouera.
+        pushCritereToSupa(gn, critId, retryVal, me).catch(() => {
+          if (!pendingCriteres.current[gn]) pendingCriteres.current[gn] = new Set();
+          pendingCriteres.current[gn].add(critId);
+          const base = pendingState.current[gn] || { gare: gn, data: {}, updated: Date.now(), auteur: me };
+          pendingState.current[gn] = { ...base, data: { ...(base.data || {}), [critId]: retryVal } };
+        });
       });
       showToast(`${changedCriteres.length} photo(s) envoyée(s) ✓`, 'success');
       setRetryingPhotos(null);
@@ -4289,14 +4293,18 @@ function App() {
       };
       const newV = { gare: gareName, data: initialData, updated: Date.now(), auteur };
       setAll((a) => ({ ...a, [gareName]: newV }));
-      // v71 : push chaque critère initial + meta visite individuellement
-      const me = auteur || (typeof localStorage !== 'undefined' ? localStorage.getItem('serm-auteur') : null) || 'Anonyme';
+      // Mise en file d'attente fiable : la création initiale passe par le buffer
+      // (pendingCriteres + pendingState + pendingMetaFlag). Le ré-essai périodique
+      // garantit l'envoi même si le réseau est instable au moment de la création.
+      if (!pendingCriteres.current[gareName]) pendingCriteres.current[gareName] = new Set();
       Object.entries(initialData).forEach(([cid, val]) => {
         if (val !== undefined && val !== null && val !== '') {
-          pushCritereToSupa(gareName, cid, val, me);
+          pendingCriteres.current[gareName].add(cid);
         }
       });
-      pushVisiteMetaToSupa(newV);
+      pendingMetaFlag.current[gareName] = true;
+      pendingState.current[gareName] = newV;
+      debouncedPush(newV);
     }
     setRoute({ name: 'form', gareName });
   };
@@ -4333,43 +4341,74 @@ function App() {
     if (pendingPushes.current[gn]) clearTimeout(pendingPushes.current[gn]);
     pendingPushes.current[gn] = setTimeout(async () => {
       delete pendingPushes.current[gn];
-      const versionPushed = visite;
-      // Récupérer les critères à pusher pour cette gare (et reset le buffer)
-      const critSet = pendingCriteres.current[gn] || new Set();
-      const critsToFlush = Array.from(critSet);
-      pendingCriteres.current[gn] = new Set();
+      // On lit la DERNIÈRE version locale connue (pendingState), pas le snapshot
+      // figé : ainsi un re-essai pousse les valeurs à jour.
+      const local = pendingState.current[gn] || visite;
+      const critSet = pendingCriteres.current[gn];
+      const critsToFlush = critSet ? Array.from(critSet) : [];
       const flushMeta = pendingMetaFlag.current[gn] === true;
-      pendingMetaFlag.current[gn] = false;
+      if (critsToFlush.length === 0 && !flushMeta) return; // rien à envoyer
       const me = auteur || (typeof localStorage !== 'undefined' ? localStorage.getItem('serm-auteur') : null) || 'Anonyme';
 
       try {
-        // v71 : push CHAQUE critère modifié individuellement (multi-user safe)
+        // Push CHAQUE critère modifié individuellement (multi-user safe)
         await Promise.all(critsToFlush.map(cid => {
-          const val = versionPushed.data?.[cid];
+          const val = local.data?.[cid];
           if (val === undefined || val === null) {
-            // Critère effacé : on supprime côté serveur
-            return deleteCritereFromSupa(gn, cid);
+            return deleteCritereFromSupa(gn, cid); // critère effacé → suppression serveur
           }
           return pushCritereToSupa(gn, cid, val, me);
         }));
-        // Meta visite (auteurs, date_visite, météo) si changée
-        if (flushMeta) await pushVisiteMetaToSupa(versionPushed);
+        if (flushMeta) await pushVisiteMetaToSupa(local);
       } catch (e) {
-        console.warn('Push failed, keeping local pending state:', e);
-        // En cas d'erreur, on GARDE pendingState pour ne pas perdre les modifs
+        // ÉCHEC réseau : on NE VIDE PAS le buffer → les critères restent en
+        // attente et seront RÉ-ESSAYÉS (retry périodique) jusqu'à succès. On
+        // garde aussi pendingState. → plus aucune saisie perdue en silence.
+        console.warn('Envoi échoué, sera réessayé:', e);
         return;
       }
-      // Push réussi. On retire le verrou 3 sec après pour absorber les échos
-      // realtime retardés. MAIS si l'utilisateur a fait une nouvelle modif
-      // entre-temps (pendingState a été réécrit), on ne touche à rien :
-      // un autre push est déjà programmé et il prendra le relais.
+      // SUCCÈS : on retire du buffer UNIQUEMENT ce qu'on vient de confirmer
+      // (sans toucher aux critères ajoutés entre-temps par une nouvelle saisie).
+      if (critSet) critsToFlush.forEach(cid => critSet.delete(cid));
+      if (flushMeta) pendingMetaFlag.current[gn] = false;
+      // Si plus rien en attente, on libère la protection locale 3 s plus tard
+      // (absorbe les échos realtime retardés), sauf si une nouvelle saisie est
+      // arrivée entre-temps (pendingState réécrit → un autre push prendra le relais).
       setTimeout(() => {
-        if (pendingState.current[gn] === versionPushed) {
+        const stillPending = (pendingCriteres.current[gn] && pendingCriteres.current[gn].size > 0) || pendingMetaFlag.current[gn] === true;
+        if (!stillPending && pendingState.current[gn] === local) {
           delete pendingState.current[gn];
         }
       }, 3000);
     }, 800);
   }, [auteur]);
+
+  // ── FILET DE SÉCURITÉ : ré-essai des envois en attente ───────────────────
+  // Sur réseau instable (gares), un envoi peut échouer. Les critères concernés
+  // restent dans pendingCriteres ; on les rejoue toutes les 8 s, au retour de
+  // connexion et au retour sur l'appli, jusqu'à confirmation serveur. C'est ce
+  // qui garantit que les saisies finissent TOUTES par arriver → plus de
+  // pourcentages qui divergent entre appareils.
+  useEffect(() => {
+    if (readOnly) return;
+    const flushPending = () => {
+      Object.keys(pendingCriteres.current).forEach(gn => {
+        const hasCrit = pendingCriteres.current[gn] && pendingCriteres.current[gn].size > 0;
+        const hasMeta = pendingMetaFlag.current[gn] === true;
+        if (!hasCrit && !hasMeta) return;
+        const v = pendingState.current[gn];
+        if (v) debouncedPush(v);
+      });
+    };
+    const id = setInterval(flushPending, 8000);
+    window.addEventListener('online', flushPending);
+    window.addEventListener('focus', flushPending);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('online', flushPending);
+      window.removeEventListener('focus', flushPending);
+    };
+  }, [debouncedPush, readOnly]);
 
   const updateVisite = (v) => {
     if (readOnly) return; // Mode consultation - aucune écriture
