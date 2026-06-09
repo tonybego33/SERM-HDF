@@ -974,6 +974,8 @@ async function pullAllFromSupa() {
     while (true) {
       const { data, error } = await supa.from('responses')
         .select('*')
+        .order('gare', { ascending: true })
+        .order('critere_id', { ascending: true })
         .range(from, from + PAGE_SIZE - 1);
       if (error) { console.warn('Pull responses page', from, ':', error); return null; }
       if (!data || data.length === 0) break;
@@ -989,6 +991,7 @@ async function pullAllFromSupa() {
     while (true) {
       const { data, error } = await supa.from('visite_meta')
         .select('*')
+        .order('gare', { ascending: true })
         .range(from, from + PAGE_SIZE - 1);
       if (error) { console.warn('Pull meta page', from, ':', error); break; }
       if (!data || data.length === 0) break;
