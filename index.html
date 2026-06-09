@@ -950,6 +950,16 @@ async function deleteCritereFromSupa(gareName, critereId) {
 }
 
 /* Pull tous les responses + visite_meta, reconstruit la structure `all` */
+// Garde-fou anti-blocage : empêche une requête réseau qui traîne (5G instable)
+// de bloquer indéfiniment (spinner infini). Résout à null après `ms` si rien
+// n'est revenu → l'appli ne se fige plus, on retentera au prochain cycle.
+function withTimeout(promise, ms = 15000) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
+}
+
 async function pullAllFromSupa() {
   if (!supa) return null;
   try {
@@ -1038,7 +1048,7 @@ function setupRealtimeSync(onChange, isLocalEcho) {
       // mode multi-user), on attend que ça se calme avant de re-fetch.
       if (pullTimeout) clearTimeout(pullTimeout);
       pullTimeout = setTimeout(async () => {
-        const fresh = await pullAllFromSupa();
+        const fresh = await withTimeout(pullAllFromSupa());
         if (fresh) onChange(fresh);
       }, 400);
     };
@@ -4119,7 +4129,7 @@ function App() {
   useEffect(() => {
     let mounted = true;
     setSyncing(true);
-    Promise.all([pullAllFromSupa(), pullGrilleFromSupa()]).then(([fresh, grille]) => {
+    Promise.all([withTimeout(pullAllFromSupa()), withTimeout(pullGrilleFromSupa())]).then(([fresh, grille]) => {
       if (!mounted) return;
       if (fresh) {
         // Au pull initial, on respecte pendingState au cas où l'utilisateur
@@ -4136,7 +4146,7 @@ function App() {
       }
       if (grille) bumpGrid();
       setSyncing(false);
-    });
+    }).catch((e) => { console.warn('Initial pull failed:', e); if (mounted) setSyncing(false); });
     return () => { mounted = false; };
   }, [bumpGrid]);
 
@@ -4149,7 +4159,7 @@ function App() {
     if (syncing) return;
     setSyncing(true);
     try {
-      const fresh = await pullAllFromSupa();
+      const fresh = await withTimeout(pullAllFromSupa());
       if (fresh) {
         setAll((prev) => {
           // On préserve les gares locales (prev) puis on applique fresh par-dessus
@@ -4207,29 +4217,6 @@ function App() {
     const teardownGri = setupGrilleRealtime(() => bumpGrid());
     return () => { teardownVis(); teardownGri(); };
   }, [bumpGrid]);
-
-  // Filet de sécurité : re-synchronisation automatique toutes les 30 s.
-  // Couvre les cas où le temps réel ne passe pas (Realtime désactivé côté Supabase,
-  // connexion mobile mise en veille, event perdu). Sans danger : un pull raté
-  // renvoie null (→ on ne touche à rien), et le merge préserve les saisies locales.
-  useEffect(() => {
-    if (readOnly) return;
-    const id = setInterval(async () => {
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-      const fresh = await pullAllFromSupa();
-      if (!fresh) return;
-      setAll((prev) => {
-        const merged = { ...prev, ...fresh };
-        const now = Date.now();
-        Object.keys(lastLocalEdit.current).forEach((gn) => {
-          if (now - lastLocalEdit.current[gn] < PROTECT_MS && prev[gn]) merged[gn] = prev[gn];
-        });
-        Object.keys(pendingState.current).forEach((gn) => { merged[gn] = pendingState.current[gn]; });
-        return merged;
-      });
-    }, 30000);
-    return () => clearInterval(id);
-  }, [readOnly]);
 
   // Persist locally
   useEffect(() => { saveAll(all); }, [all]);
