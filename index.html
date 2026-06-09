@@ -1307,19 +1307,16 @@ function mergeServerState(prev, fresh, pending, recover) {
       updated: freshV.updated || (localV && localV.updated)
     };
   });
-  // Gares présentes SEULEMENT en local (visite jamais arrivée au serveur) :
-  // conservées par {...prev} ; si récupération, on remet leurs critères en file.
-  if (recover) {
-    Object.keys(prev).forEach((gn) => {
-      if (fresh[gn]) return;
-      const ld = (prev[gn] && prev[gn].data) || {};
-      const cids = Object.keys(ld);
-      if (cids.length === 0) return;
-      const set = queueRecover(gn);
-      cids.forEach((cid) => set.add(cid));
-      recover.state.current[gn] = prev[gn];
-    });
-  }
+  // ⚠ FIX "résurrection d'une gare supprimée" (ex: Avion re-poussée toute seule par
+  // 'Anonyme') : on NE remet PLUS automatiquement en file d'envoi les gares présentes
+  // seulement en local et absentes du serveur. Avant, après une suppression, l'appareil
+  // qui avait encore la gare en cache la re-poussait tout seul (via flushPending) → elle
+  // revenait sans fin, impossible de s'en débarrasser. La gare reste disponible EN LOCAL
+  // (conservée par {...prev} plus haut) et se re-synchronise dès qu'on ÉDITE un de ses
+  // critères (debouncedPush) ou qu'une de ses photos en attente s'uploade
+  // (retryPendingPhotos pousse alors le critère) → aucune perte de données, mais une gare
+  // volontairement supprimée ne ressuscite plus.
+  // [bloc de ré-injection automatique au niveau gare désactivé volontairement]
   return merged;
 }
 
@@ -1650,7 +1647,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 17';
+const APP_VERSION = 'v2026-06-09 · 18';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
