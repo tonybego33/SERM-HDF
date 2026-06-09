@@ -843,6 +843,9 @@ const DEVICE_ID = (() => {
 const isMyPending = (p) => !!(p && p.pending && (p.owner === DEVICE_ID || !p.owner));
 // Photo en attente appartenant à un AUTRE appareil (URL blob: inexploitable ici)
 const isForeignPending = (p) => !!(p && p.pending && p.owner && p.owner !== DEVICE_ID);
+// Dernière erreur d'upload photo (message exact) → affichée dans l'app pour diagnostic.
+let LAST_PHOTO_ERR = null;
+let _photoErrToast = null; // évite de spammer le même message en boucle
 
 /* ============================================================
    INDEXEDDB - stockage persistant des photos en attente d'upload
@@ -1363,16 +1366,24 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
     const safe = toUpload.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-40);
     const slug = gareName.replace(/[^a-zA-Z0-9]/g, '_');
     const path = `${slug}/${critId}_${ts}_${safe}`;
-    const { error } = await supa.storage.from('photos').upload(path, toUpload, {
+    // ⚠ Timeout 30 s : sans ça, un upload qui "pend" (réseau qui répond pas) ne se
+    // résout JAMAIS → retryPendingPhotos reste bloqué → plus AUCUN ré-essai photo
+    // de la session. Le timeout transforme un blocage en simple échec → on retente.
+    const res = await withTimeout(supa.storage.from('photos').upload(path, toUpload, {
       contentType: toUpload.type, upsert: false
-    });
-    if (error) throw error;
+    }), 30000);
+    if (!res) throw new Error('timeout 30s (réseau trop lent ou aucune réponse)');
+    if (res.error) throw res.error;
     const { data } = supa.storage.from('photos').getPublicUrl(path);
+    LAST_PHOTO_ERR = null; // upload OK → on efface l'erreur précédente
     return {
       url: data.publicUrl, path, name: toUpload.name,
       size: toUpload.size, originalSize
     };
   } catch (e) {
+    // On garde le message exact pour pouvoir l'afficher dans l'app (cause réelle :
+    // RLS, auth, réseau, timeout… au lieu de "ça marche pas").
+    LAST_PHOTO_ERR = (e && (e.message || e.error || e.statusCode || e.name)) ? String(e.message || e.error || ('HTTP ' + e.statusCode) || e.name) : 'erreur inconnue';
     console.warn('Upload failed, falling back offline:', e);
     return goOffline();
   }
@@ -1558,7 +1569,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 9';
+const APP_VERSION = 'v2026-06-09 · 10';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
@@ -4292,7 +4303,15 @@ function App() {
       if (!cancelled) setRetryingPhotos({ done, total });
     }).then((newAll) => {
       if (cancelled) return;
-      if (newAll === allAtStart) { setRetryingPhotos(null); return; }
+      if (newAll === allAtStart) {
+        setRetryingPhotos(null);
+        // Rien n'est monté : si un upload a échoué, on affiche LA cause exacte (une fois).
+        if (LAST_PHOTO_ERR && LAST_PHOTO_ERR !== _photoErrToast) {
+          _photoErrToast = LAST_PHOTO_ERR;
+          showToast('⚠ Upload photo bloqué : ' + LAST_PHOTO_ERR, 'error');
+        }
+        return;
+      }
       // Identifier les critères dont les photos ont effectivement changé
       const changedCriteres = []; // [{ gare, critId, retryVal }]
       Object.entries(newAll).forEach(([gn, retryVisite]) => {
