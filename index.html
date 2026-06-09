@@ -855,19 +855,35 @@ function stripPendingPhotosForServer(value) {
   if (kept.length === value.photos.length) return value;
   return { ...value, photos: kept };
 }
-// Réinjecte MES photos en attente (locales) par-dessus une valeur venue du serveur,
-// pour ne pas les perdre lors d'une fusion (le serveur ne stocke jamais de pending).
-// → l'aperçu local et le ré-essai d'upload survivent à un refresh / retour d'app.
-function keepLocalPendingPhotos(serverVal, localVal) {
-  const localPending = (localVal && typeof localVal === 'object' && Array.isArray(localVal.photos))
-    ? localVal.photos.filter(p => isMyPending(p)) : [];
-  if (localPending.length === 0) return serverVal;
+// Fusionne les photos d'une valeur SERVEUR avec les photos LOCALES, par identité
+// (blobId, sinon url). Règles, dans l'ordre :
+//  • on ne PERD jamais une photo locale absente du serveur (→ elle ne "disparaît"
+//    plus juste après l'upload, et une photo en attente reste visible) ;
+//  • une version UPLOADÉE (https) gagne TOUJOURS sur une version en attente (blob)
+//    du même cliché (→ plus de retour en "en attente", plus de clignotement).
+// C'est ce qui rend l'affichage des photos stable quel que soit l'ordre d'arrivée
+// des événements temps-réel.
+function reconcilePhotos(serverVal, localVal) {
+  const incArr = (serverVal && typeof serverVal === 'object' && Array.isArray(serverVal.photos)) ? serverVal.photos : null;
+  const locArr = (localVal && typeof localVal === 'object' && Array.isArray(localVal.photos)) ? localVal.photos : null;
+  if (!incArr && !locArr) return serverVal;
+  const keyOf = (p, fallback) => (p && (p.blobId || p.url)) || fallback;
+  const order = [];
+  const map = new Map();
+  (locArr || []).forEach((p, i) => { const k = keyOf(p, 'L' + i); if (!map.has(k)) order.push(k); map.set(k, p); });
+  (incArr || []).forEach((p, i) => {
+    const k = keyOf(p, 'I' + i);
+    const existing = map.get(k);
+    if (!existing) { order.push(k); map.set(k, p); return; }
+    const pUp = isUploadedPhoto(p), eUp = isUploadedPhoto(existing);
+    if (pUp && !eUp) map.set(k, p);           // l'uploadée gagne sur l'en-attente
+    else if (!pUp && eUp) { /* on garde l'uploadée locale */ }
+    else map.set(k, p);                        // même statut → on prend la version serveur
+  });
+  const photos = order.map(k => map.get(k));
   const base = (serverVal && typeof serverVal === 'object' && !Array.isArray(serverVal))
     ? serverVal : (serverVal !== undefined && serverVal !== null ? { val: serverVal } : {});
-  const serverPhotos = Array.isArray(base.photos) ? base.photos : [];
-  const seen = new Set(serverPhotos.map(p => p && p.blobId).filter(Boolean));
-  const merged = [...serverPhotos, ...localPending.filter(p => !p.blobId || !seen.has(p.blobId))];
-  return { ...base, photos: merged };
+  return { ...base, photos };
 }
 // Dernière erreur d'upload photo (message exact) → affichée dans l'app pour diagnostic.
 let LAST_PHOTO_ERR = null;
@@ -1157,7 +1173,7 @@ function applyResponseDelta(prev, payload, pendingCrit) {
   } else {
     // On préserve MES photos en attente (le serveur n'en stocke jamais) : elles ne
     // doivent pas disparaître quand un delta serveur arrive sur ce critère.
-    const mergedVal = keepLocalPendingPhotos(val, newData[cid]);
+    const mergedVal = reconcilePhotos(val, newData[cid]);
     if (JSON.stringify(newData[cid]) === JSON.stringify(mergedVal)) return prev; // pas de réel changement
     newData[cid] = mergedVal;
   }
@@ -1265,7 +1281,7 @@ function mergeServerState(prev, fresh, pending, recover) {
     // 3. Préserver MES photos en attente même là où le serveur fait foi (le serveur
     //    ne stocke jamais de pending) → une photo pas encore uploadée ne disparaît
     //    pas au refresh / retour d'app, et reste dans la file de ré-essai.
-    Object.keys(data).forEach((cid) => { data[cid] = keepLocalPendingPhotos(data[cid], ld[cid]); });
+    Object.keys(data).forEach((cid) => { data[cid] = reconcilePhotos(data[cid], ld[cid]); });
     merged[gn] = {
       ...freshV,
       data,
@@ -1496,7 +1512,10 @@ async function retryPendingPhotos(all, onProgress) {
             if (p.url && p.url.startsWith('blob:')) {
               try { URL.revokeObjectURL(p.url); } catch (e) {}
             }
-            newPhotos.push(uploaded);
+            // On conserve le blobId comme IDENTITÉ stable du cliché : ainsi la version
+            // uploadée et la version en attente du MÊME cliché sont reconnues comme une
+            // seule photo (reconcilePhotos) → l'uploadée remplace l'en-attente sans doublon.
+            newPhotos.push(p.blobId ? { ...uploaded, blobId: p.blobId } : uploaded);
             visiteChanged = true;
             totalDone++;
             if (onProgress) onProgress(totalDone, totalPending);
@@ -1606,7 +1625,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 12';
+const APP_VERSION = 'v2026-06-09 · 13';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
