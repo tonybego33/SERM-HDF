@@ -1655,7 +1655,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 20';
+const APP_VERSION = 'v2026-06-09 · 21';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
@@ -6329,7 +6329,45 @@ function Toast({ toast }) {
     }}>{toast.msg}</div>);
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+/* ============================================================
+   FILET ANTI-CRASH (Error Boundary)
+   ============================================================
+   Si un composant lève une exception au rendu (donnée inattendue, etc.),
+   React démonte tout l'arbre → écran blanc. Ce filet capture l'erreur et
+   affiche un écran de secours avec un bouton "Recharger", en rappelant que
+   les données sont sauvegardées (localStorage + serveur). Il ne modifie
+   AUCUN comportement normal : il ne s'active qu'en cas de crash réel.
+   ============================================================ */
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { try { console.error('Crash capturé par ErrorBoundary:', error, info); } catch (e) {} }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 24, maxWidth: 560, margin: '40px auto', fontFamily: 'system-ui, -apple-system, sans-serif', textAlign: 'center' }}>
+          <div style={{ fontSize: 42, marginBottom: 12 }}>⚠️</div>
+          <h2 style={{ fontSize: 18, marginBottom: 8 }}>Une erreur est survenue</h2>
+          <p style={{ color: '#555', lineHeight: 1.5, marginBottom: 18 }}>
+            Tes saisies sont sauvegardées (sur cet appareil et sur le serveur). Recharge la page pour reprendre — rien n'est perdu.
+          </p>
+          <button onClick={() => { try { window.location.reload(); } catch (e) {} }}
+            style={{ background: '#1a1a1a', color: '#fff', border: 'none', borderRadius: 8, padding: '12px 22px', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
+            Recharger l'application
+          </button>
+          <pre style={{ marginTop: 18, fontSize: 11, color: '#aaa', whiteSpace: 'pre-wrap', textAlign: 'left' }}>
+            {String((this.state.error && (this.state.error.message || this.state.error)) || '')}
+          </pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <ErrorBoundary><App /></ErrorBoundary>
+);
 
 </script>
 </body>
