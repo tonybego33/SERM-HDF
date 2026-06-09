@@ -1437,13 +1437,18 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
     const safe = toUpload.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-40);
     const slug = gareName.replace(/[^a-zA-Z0-9]/g, '_');
     const path = `${slug}/${critId}_${ts}_${safe}`;
-    // ⚠ Timeout 30 s : sans ça, un upload qui "pend" (réseau qui répond pas) ne se
-    // résout JAMAIS → retryPendingPhotos reste bloqué → plus AUCUN ré-essai photo
-    // de la session. Le timeout transforme un blocage en simple échec → on retente.
+    // ⚠ Timeout 120 s : un upload qui "pend" (réseau qui répond pas) ne se résout
+    // JAMAIS → retryPendingPhotos reste bloqué → plus AUCUN ré-essai photo. Le timeout
+    // transforme un blocage en simple échec → on retente.
+    // ⚠ FIX "toujours une photo en attente sur mobile" : 30 s était trop court pour un
+    // GROS fichier (photo dont la compression a échoué → original plein format de
+    // plusieurs Mo) sur l'uplink lent d'un téléphone en 4G → timeout systématique sur
+    // CETTE photo, alors que les petites passaient (et que tout passait sur le wifi du
+    // PC). 120 s laisse le temps à un original lourd de monter.
     const res = await withTimeout(supa.storage.from('photos').upload(path, toUpload, {
       contentType: toUpload.type, upsert: false
-    }), 30000);
-    if (!res) throw new Error('timeout 30s (réseau trop lent ou aucune réponse)');
+    }), 120000);
+    if (!res) throw new Error('timeout 120s (réseau trop lent ou aucune réponse)');
     if (res.error) throw res.error;
     const { data } = supa.storage.from('photos').getPublicUrl(path);
     LAST_PHOTO_ERR = null; // upload OK → on efface l'erreur précédente
@@ -1645,7 +1650,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 15';
+const APP_VERSION = 'v2026-06-09 · 17';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
@@ -4378,7 +4383,12 @@ function App() {
     retryPendingPhotos(all, (done, total) => {
       if (!cancelled) setRetryingPhotos({ done, total });
     }).then((newAll) => {
-      if (cancelled) return;
+      // ⚠ On N'IGNORE PLUS le résultat même si ce run a été "annulé" : retryPendingPhotos
+      // a DÉJÀ uploadé les photos ET supprimé leurs blobs de IndexedDB. Ne pas appliquer
+      // son résultat (ancien cas annulé) laissait la photo "en attente" avec un blob
+      // disparu → plus jamais ré-uploadable. C'est LE bug "la 1re photo d'un lot reste en
+      // attente" : la 1re déclenche un retry annulé dès que la 2e arrive. On applique donc
+      // TOUJOURS, par FUSION (cf. setAll) pour ne pas écraser les photos ajoutées entre-temps.
       if (newAll === allAtStart) {
         setRetryingPhotos(null);
         // Rien n'est monté : si un upload a échoué, on affiche LA cause exacte (une fois).
@@ -4412,7 +4422,19 @@ function App() {
           const baseObj = (currentVal && typeof currentVal === 'object' && !Array.isArray(currentVal))
             ? currentVal
             : (currentVal !== undefined ? { val: currentVal } : {});
-          const newData = { ...currentVisite.data, [critId]: { ...baseObj, photos: retryVal.photos, _at: retryVal._at || baseObj._at } };
+          // FUSION par identité (blobId/url), pas écrasement : on remplace la version
+          // "en attente" de chaque photo par sa version uploadée, en GARDANT les photos
+          // ajoutées entre-temps (ex: la 2e photo encore en attente) → aucune perte, et
+          // la 1re photo d'un lot n'est plus laissée "en attente" par un run annulé.
+          const curPhotos = Array.isArray(baseObj.photos) ? baseObj.photos : [];
+          const upMap = new Map();
+          (retryVal.photos || []).forEach((p) => { const k = p && (p.blobId || p.url); if (k) upMap.set(k, p); });
+          const mergedPhotos = curPhotos.map((p) => {
+            const k = p && (p.blobId || p.url);
+            const up = k && upMap.get(k);
+            return (up && /^https?:\/\//.test(up.url || '') && !up.pending) ? up : p;
+          });
+          const newData = { ...currentVisite.data, [critId]: { ...baseObj, photos: mergedPhotos, _at: Math.max(baseObj._at || 0, retryVal._at || 0) } };
           merged[gn] = { ...currentVisite, data: newData };
         });
         return merged;
