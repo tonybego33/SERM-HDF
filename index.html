@@ -3953,6 +3953,10 @@ function App() {
   // État réseau (online/offline) + queue d'upload photos
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [retryingPhotos, setRetryingPhotos] = useState(null); // { done, total } | null
+  const [retryTick, setRetryTick] = useState(0); // relance périodique du ré-envoi photos
+  const retryingRef = useRef(null); // reflète retryingPhotos pour éviter de relancer pendant un envoi
+
+  useEffect(() => { retryingRef.current = retryingPhotos; }, [retryingPhotos]);
 
   useEffect(() => {
     const onOnline = () => setIsOnline(true);
@@ -3963,6 +3967,16 @@ function App() {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };
+  }, []);
+
+  // Ré-essai des photos en attente même si le signal reste "en ligne" mais faible :
+  // relance toutes les 25 s, et quand on revient sur l'appli. Le garde retryingRef
+  // évite de relancer (et donc d'annuler) pendant qu'un envoi est déjà en cours.
+  useEffect(() => {
+    const bump = () => { if (!retryingRef.current) setRetryTick((t) => t + 1); };
+    const id = setInterval(bump, 25000);
+    window.addEventListener('focus', bump);
+    return () => { clearInterval(id); window.removeEventListener('focus', bump); };
   }, []);
 
   const [route, setRoute] = useState({ name: 'home' });
@@ -4099,7 +4113,7 @@ function App() {
     }).catch(() => { if (!cancelled) setRetryingPhotos(null); });
     return () => { cancelled = true; };
     // eslint-disable-next-line
-  }, [isOnline, pendingCount]);
+  }, [isOnline, pendingCount, retryTick]);
 
   // Initial pull from Supabase + local persistence
   useEffect(() => {
