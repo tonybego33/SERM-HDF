@@ -267,6 +267,25 @@ const GARES = [
 { nom: "Wavrin", uic: 87286419, cat_pro: "3- Pôle Relais", cat_sgp: "Gare périurbaine", ligne_flux: "B07", axe: "Don-lille", secteur: "Zone Urbaine Lille", profile: "bv_ouvert_sans_pers", config: "biface", quais: 2 }
 ];
 
+/* ============================================================
+   GARES ARCHIVÉES - anciennes visites conservées dans Supabase mais
+   retirées de l'app active : plus affichées dans la liste « Sur le terrain »
+   et plus chargées depuis le serveur (requêtes plus légères).
+   AUCUNE donnée n'est supprimée. Pour réafficher une gare, retire-la de
+   cette liste (les données reviennent au prochain ACTUALISER).
+   ============================================================ */
+const ARCHIVED = new Set([
+  "Hellemmes", "Pont de Bois", "Baisieux", "Lille Porte de Douai", "Saint-André-lez-Lille",
+  "La Madeleine", "Lille CHR", "Loos lez Lille", "Lomme", "Lille Délivrance", "Haubourdin",
+  "Sequedin", "Lezennes", "Lille Sud", "Armentières", "Marquillies", "Don - Sainghin",
+  "Pérenchies", "Nieppe", "Steenwerck", "Santes", "Wavrin", "Bailleul", "Strazeele",
+  "Hazebrouck", "Ascq", "Croix - Wasquehal", "Annappes", "Croix L'Allumette",
+  "Tourcoing", "Roubaix"
+]);
+// Noms des gares encore actives (= non archivées) → utilisé pour ne charger
+// QUE celles-ci depuis Supabase (filtre serveur, requêtes allégées).
+const ACTIVE_GARE_NAMES = GARES.map(g => g.nom).filter(n => !ARCHIVED.has(n));
+
 
 /* ============================================================
    SECTIONS - grille refondue en mode RECENSEMENT
@@ -974,6 +993,7 @@ async function pullAllFromSupa() {
     while (true) {
       const { data, error } = await supa.from('responses')
         .select('*')
+        .in('gare', ACTIVE_GARE_NAMES)
         .order('gare', { ascending: true })
         .order('critere_id', { ascending: true })
         .range(from, from + PAGE_SIZE - 1);
@@ -991,6 +1011,7 @@ async function pullAllFromSupa() {
     while (true) {
       const { data, error } = await supa.from('visite_meta')
         .select('*')
+        .in('gare', ACTIVE_GARE_NAMES)
         .order('gare', { ascending: true })
         .range(from, from + PAGE_SIZE - 1);
       if (error) { console.warn('Pull meta page', from, ':', error); break; }
@@ -1813,7 +1834,7 @@ function FriendlyHero({ all, auteur, visites, fullyDone, inProgress, visited, to
    HOME SCREEN
    ============================================================ */
 function HomeScreen({ onPick, onOpen, all, auteur, onChangeAuteur, onExportAll, onSynthese, syncing, readOnly, isOnline, pendingCount, retryingPhotos, gridRev, onDeleteVisite }) {
-  const visites = Object.values(all).sort((a, b) => b.updated - a.updated);
+  const visites = Object.values(all).filter((v) => !ARCHIVED.has(v.gare)).sort((a, b) => b.updated - a.updated);
   const totalGares = GARES.length;
   const visited = visites.length;
   const fullyDone = visites.filter((v) => {
