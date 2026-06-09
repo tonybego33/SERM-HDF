@@ -994,7 +994,6 @@ async function pullAllFromSupa() {
     while (true) {
       const { data, error } = await supa.from('responses')
         .select('*')
-        .in('gare', ACTIVE_GARE_NAMES)
         .order('gare', { ascending: true })
         .order('critere_id', { ascending: true })
         .range(from, from + PAGE_SIZE - 1);
@@ -1012,7 +1011,6 @@ async function pullAllFromSupa() {
     while (true) {
       const { data, error } = await supa.from('visite_meta')
         .select('*')
-        .in('gare', ACTIVE_GARE_NAMES)
         .order('gare', { ascending: true })
         .range(from, from + PAGE_SIZE - 1);
       if (error) { console.warn('Pull meta page', from, ':', error); break; }
@@ -1394,7 +1392,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 3';
+const APP_VERSION = 'v2026-06-09 · 4';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
