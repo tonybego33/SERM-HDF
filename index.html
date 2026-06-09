@@ -4208,6 +4208,29 @@ function App() {
     return () => { teardownVis(); teardownGri(); };
   }, [bumpGrid]);
 
+  // Filet de sécurité : re-synchronisation automatique toutes les 30 s.
+  // Couvre les cas où le temps réel ne passe pas (Realtime désactivé côté Supabase,
+  // connexion mobile mise en veille, event perdu). Sans danger : un pull raté
+  // renvoie null (→ on ne touche à rien), et le merge préserve les saisies locales.
+  useEffect(() => {
+    if (readOnly) return;
+    const id = setInterval(async () => {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      const fresh = await pullAllFromSupa();
+      if (!fresh) return;
+      setAll((prev) => {
+        const merged = { ...prev, ...fresh };
+        const now = Date.now();
+        Object.keys(lastLocalEdit.current).forEach((gn) => {
+          if (now - lastLocalEdit.current[gn] < PROTECT_MS && prev[gn]) merged[gn] = prev[gn];
+        });
+        Object.keys(pendingState.current).forEach((gn) => { merged[gn] = pendingState.current[gn]; });
+        return merged;
+      });
+    }, 30000);
+    return () => clearInterval(id);
+  }, [readOnly]);
+
   // Persist locally
   useEffect(() => { saveAll(all); }, [all]);
 
