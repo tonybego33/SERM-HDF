@@ -965,7 +965,7 @@ async function pullAllFromSupa() {
       const { data, error } = await supa.from('responses')
         .select('*')
         .range(from, from + PAGE_SIZE - 1);
-      if (error) { console.warn('Pull responses page', from, ':', error); break; }
+      if (error) { console.warn('Pull responses page', from, ':', error); return null; }
       if (!data || data.length === 0) break;
       allResponses = allResponses.concat(data);
       if (data.length < PAGE_SIZE) break; // dernière page
