@@ -1569,7 +1569,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 10';
+const APP_VERSION = 'v2026-06-09 · 11';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
@@ -4188,6 +4188,7 @@ function App() {
   const [retryingPhotos, setRetryingPhotos] = useState(null); // { done, total } | null
   const [retryTick, setRetryTick] = useState(0); // relance périodique du ré-envoi photos
   const retryingRef = useRef(null); // reflète retryingPhotos pour éviter de relancer pendant un envoi
+  const lastSyncRef = useRef(0); // curseur (ms epoch serveur) pour le rattrapage incrémental auto-réparant
 
   useEffect(() => { retryingRef.current = retryingPhotos; }, [retryingPhotos]);
 
@@ -4369,6 +4370,13 @@ function App() {
     Promise.all([withTimeout(pullAllFromSupa()), withTimeout(pullGrilleFromSupa())]).then(([fresh, grille]) => {
       if (!mounted) return;
       if (fresh) {
+        // Init du curseur de rattrapage incrémental = horodatage serveur le plus récent
+        // vu au pull initial (skew-proof car on compare des updated_at serveur entre eux).
+        try {
+          let mx = 0;
+          Object.values(fresh).forEach((v) => { if (v && v.updated && v.updated > mx) mx = v.updated; });
+          if (mx > lastSyncRef.current) lastSyncRef.current = mx;
+        } catch (e) {}
         // Fusion par critère : le serveur fait foi, on ne préserve que MES critères
         // non encore confirmés (rare au tout premier pull, mais possible si le pull
         // est lent et que l'utilisateur a déjà saisi quelque chose). On part de prev
@@ -4454,6 +4462,60 @@ function App() {
       if (reconcileTO) clearTimeout(reconcileTO);
     };
   }, [bumpGrid]);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // FILET DE SÉCURITÉ AUTO-RÉPARANT  ← LE correctif central
+  // Le realtime du free tier perd ~30 % des événements → des changements jamais
+  // appliqués → divergence entre tels + photos qui restent "en attente". L'ancienne
+  // version (qui marchait à 6) rechargeait TOUT à chaque event → jamais de divergence.
+  // Ici on retrouve cette robustesse SANS la lourdeur : toutes les 8 s on rattrape
+  // UNIQUEMENT les lignes modifiées depuis le dernier passage (incrémental → léger,
+  // ne consomme quasi pas de bande passante). Fonctionne MÊME si le realtime est
+  // cassé/désactivé. applyResponseDelta protège mes saisies non confirmées et ignore
+  // les valeurs identiques → ce rattrapage ne peut PAS écraser mon travail en cours,
+  // il ne fait qu'AJOUTER ce que j'aurais raté.
+  useEffect(() => {
+    if (!supa) return;
+    let stopped = false;
+    const reconcileIncremental = async () => {
+      if (stopped || !lastSyncRef.current) return; // pas encore initialisé par le pull initial
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      const sinceIso = new Date(lastSyncRef.current - 10000).toISOString(); // recouvrement 10 s (anti décalage d'horloge)
+      try {
+        const { data, error } = await supa.from('responses').select('*')
+          .gt('updated_at', sinceIso)
+          .order('updated_at', { ascending: true })
+          .limit(5000);
+        if (!error && data && data.length) {
+          let mx = lastSyncRef.current;
+          setAll((prev) => {
+            let next = prev;
+            data.forEach((row) => {
+              if (!row || !row.gare || !row.critere_id) return;
+              const ts = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+              if (ts > mx) mx = ts;
+              next = applyResponseDelta(next, { new: row, eventType: 'UPDATE' }, pendingCriteres.current);
+            });
+            return next;
+          });
+          lastSyncRef.current = mx;
+        }
+        const { data: md } = await supa.from('visite_meta').select('*')
+          .gt('updated_at', sinceIso).order('updated_at', { ascending: true }).limit(2000);
+        if (md && md.length) {
+          setAll((prev) => {
+            let next = prev;
+            md.forEach((row) => { if (row && row.gare) next = applyMetaDelta(next, { new: row }, pendingMetaFlag.current); });
+            return next;
+          });
+        }
+      } catch (e) { /* réseau : on retentera au prochain tick */ }
+    };
+    const id = setInterval(reconcileIncremental, 8000);
+    window.addEventListener('online', reconcileIncremental);
+    return () => { stopped = true; clearInterval(id); window.removeEventListener('online', reconcileIncremental); };
+    // eslint-disable-next-line
+  }, []);
 
   // Persist locally
   useEffect(() => { saveAll(all); }, [all]);
