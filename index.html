@@ -821,6 +821,30 @@ const loadAll = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}
 const saveAll = (all) => { try { localStorage.setItem(KEY, JSON.stringify(all)); } catch (e) { console.warn('localStorage quota dépassé', e); } };
 
 /* ============================================================
+   IDENTITÉ APPAREIL + APPARTENANCE DES PHOTOS EN ATTENTE
+   ============================================================
+   Une photo "pending" (non encore uploadée) vit dans l'IndexedDB de
+   L'APPAREIL QUI L'A PRISE, avec une URL blob: locale à cet appareil.
+   Quand cette photo est diffusée aux autres appareils (realtime/pull),
+   son URL blob: n'y résout PAS et son blobId n'y existe PAS → elle restait
+   "en attente" à vie chez les collègues et déclenchait des retries inutiles.
+   On tamponne donc chaque photo locale avec l'ID de l'appareil (owner).
+   Un appareil ne COMPTE et ne RÉ-ESSAIE QUE ses propres photos.
+   (owner absent = photo héritée d'avant ce correctif → on garde l'ancien
+    comportement pour ne rien casser : traitée comme "mienne".) */
+const DEVICE_ID = (() => {
+  try {
+    let id = localStorage.getItem('serm-device-id');
+    if (!id) { id = 'dev_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); localStorage.setItem('serm-device-id', id); }
+    return id;
+  } catch (e) { return 'dev_anon'; }
+})();
+// Photo en attente que CET appareil peut réellement uploader (la sienne, ou héritée)
+const isMyPending = (p) => !!(p && p.pending && (p.owner === DEVICE_ID || !p.owner));
+// Photo en attente appartenant à un AUTRE appareil (URL blob: inexploitable ici)
+const isForeignPending = (p) => !!(p && p.pending && p.owner && p.owner !== DEVICE_ID);
+
+/* ============================================================
    INDEXEDDB - stockage persistant des photos en attente d'upload
    ============================================================
    But : si l'utilisateur prend une photo offline et FERME l'app
@@ -1298,6 +1322,7 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
           url: URL.createObjectURL(toUpload),       // ← URL object pour preview immédiate
           name: toUpload.name, local: true,
           pending: !!supa,
+          owner: DEVICE_ID,                         // ← appareil propriétaire du blob
           size: toUpload.size, originalSize,
           critId, gareName
         };
@@ -1311,6 +1336,7 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
       r.onload = () => resolve({
         url: r.result, name: toUpload.name, local: true,
         pending: !!supa,
+        owner: DEVICE_ID,                         // ← appareil propriétaire
         size: toUpload.size, originalSize,
         critId, gareName
       });
@@ -1366,7 +1392,7 @@ async function retryPendingPhotos(all, onProgress) {
     Object.values(v.data).forEach(d => {
       if (d && typeof d === 'object' && Array.isArray(d.photos)) {
         d.photos.forEach(p => {
-          if (p?.pending && (p?.blobId || (p?.url && p.url.startsWith('data:')))) totalPending++;
+          if (isMyPending(p) && (p?.blobId || (p?.url && p.url.startsWith('data:')))) totalPending++;
         });
       }
     });
@@ -1382,7 +1408,7 @@ async function retryPendingPhotos(all, onProgress) {
       if (!value || typeof value !== 'object' || !Array.isArray(value.photos)) continue;
       const newPhotos = [];
       for (const p of value.photos) {
-        if (!p?.pending) { newPhotos.push(p); continue; }
+        if (!isMyPending(p)) { newPhotos.push(p); continue; }  // déjà uploadée OU photo d'un autre appareil
 
         let file = null;
         try {
@@ -1407,7 +1433,12 @@ async function retryPendingPhotos(all, onProgress) {
 
           const uploaded = await uploadPhoto(gareName, critId, file);
           if (uploaded.pending) {
-            // Toujours offline → on garde
+            // Toujours offline → on garde l'originale. uploadPhoto a re-stocké un
+            // NOUVEAU blob dans IndexedDB en repli : on le purge (sinon un blob
+            // orphelin s'accumule à chaque ré-essai → IndexedDB gonfle, appareil rame).
+            if (uploaded.blobId && uploaded.blobId !== p.blobId) {
+              try { await deletePhotoBlob(uploaded.blobId); } catch (e) {}
+            }
             newPhotos.push(p);
           } else {
             // Upload réussi → nettoyage IndexedDB + révoque blob URL si présente
@@ -1527,7 +1558,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 8';
+const APP_VERSION = 'v2026-06-09 · 9';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
@@ -3151,21 +3182,28 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
         marginBottom: 10, display: 'grid',
         gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))', gap: 6
       }}>
-        {photos.map((p, i) => (
+        {photos.map((p, i) => {
+          const foreign = isForeignPending(p);
+          // URL blob: d'un autre appareil → inexploitable ici : placeholder au lieu d'image cassée
+          const showImg = !!p.url && !(foreign && p.url.startsWith('blob:'));
+          return (
           <div key={i} style={{
             position: 'relative', aspectRatio: '1', borderRadius: 2, overflow: 'hidden',
             border: `1px solid ${p.pending ? 'var(--amber)' : 'var(--border)'}`,
             background: 'var(--paper)', cursor: 'pointer'
-          }} onClick={() => openLightbox(p.url)}>
-            <img src={p.url} alt="" loading="lazy"
-              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block',
-                opacity: p.pending ? 0.7 : 1 }} />
+          }} onClick={() => { if (showImg) openLightbox(p.url); }}>
+            {showImg
+              ? <img src={p.url} alt="" loading="lazy"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+                    opacity: p.pending ? 0.7 : 1 }} />
+              : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', fontSize: 20, color: 'var(--muted)' }}>📷</div>}
             {p.pending && <span style={{
               position: 'absolute', bottom: 2, left: 2,
               background: 'var(--amber)', color: 'white',
               fontSize: 8.5, fontWeight: 700, padding: '1px 4px', borderRadius: 1,
               letterSpacing: '0.04em'
-            }}>⏳ EN ATTENTE</span>}
+            }}>{foreign ? '⏳ ENVOI COLLÈGUE' : '⏳ EN ATTENTE'}</span>}
             {!locked && <button onClick={(e) => { e.stopPropagation(); removePhotoAt(i); }} style={{
               position: 'absolute', top: 2, right: 2,
               width: 20, height: 20, borderRadius: '50%',
@@ -3174,7 +3212,8 @@ function Criterion({ c, raw, gareName, onSetVal, onSetNote, onSetPhotos, onClear
               display: 'flex', alignItems: 'center', justifyContent: 'center'
             }}>×</button>}
           </div>
-        ))}
+          );
+        })}
       </div>
       }
 
@@ -4230,7 +4269,7 @@ function App() {
       if (!v?.data) return;
       Object.values(v.data).forEach(d => {
         if (d?.photos && Array.isArray(d.photos)) {
-          d.photos.forEach(p => { if (p?.pending) n++; });
+          d.photos.forEach(p => { if (isMyPending(p)) n++; });
         }
       });
     });
@@ -4535,7 +4574,7 @@ function App() {
         if (v) debouncedPush(v);
       });
     };
-    const id = setInterval(flushPending, 8000);
+    const id = setInterval(flushPending, 20000);
     window.addEventListener('online', flushPending);
     window.addEventListener('focus', flushPending);
     return () => {
