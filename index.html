@@ -1063,29 +1063,20 @@ async function deleteVisiteRemote(gareName) {
 
 /* Real-time sync : refresh app state when teammates change data
    On écoute les 2 tables (responses pour les réponses, visite_meta pour les auteurs) */
-function setupRealtimeSync(onChange, isLocalEcho) {
+function setupRealtimeSync(onRow) {
   if (!supa) return () => {};
   try {
-    let pullTimeout = null;
-    const schedulePull = () => {
-      // Debounce le pull : si plusieurs events arrivent en rafale (typique en
-      // mode multi-user), on attend que ça se calme avant de re-fetch.
-      if (pullTimeout) clearTimeout(pullTimeout);
-      pullTimeout = setTimeout(async () => {
-        const fresh = await withTimeout(pullAllFromSupa());
-        if (fresh) onChange(fresh);
-      }, 400);
-    };
-    // Ignore l'écho de NOS propres saisies : inutile de re-puller toute la table
-    // pour une modif qu'on a déjà en local (évite latence + flicker en saisie).
-    const handle = (payload) => {
+    // Temps réel DIRECT : l'événement Supabase contient déjà la ligne modifiée.
+    // On applique CE seul changement immédiatement, sans recharger toute la base
+    // → instantané, et reste rapide quelle que soit la taille des données.
+    const handle = (table) => (payload) => {
       const gn = payload?.new?.gare || payload?.old?.gare;
-      if (gn && isLocalEcho && isLocalEcho(gn)) return;
-      schedulePull();
+      if (!gn || ARCHIVED.has(gn)) return; // gare inconnue / archivée : on ignore
+      onRow(table, payload);
     };
     const channel = supa.channel('responses_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'responses' }, handle)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'visite_meta' }, handle)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'responses' }, handle('responses'))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'visite_meta' }, handle('visite_meta'))
       .subscribe();
     return () => { try { supa.removeChannel(channel); } catch (e) {} };
   } catch (e) { console.warn('Realtime setup failed:', e); return () => {}; }
@@ -4213,31 +4204,38 @@ function App() {
 
   // Real-time sync : refresh when teammates push changes
   useEffect(() => {
-    const teardownVis = setupRealtimeSync((fresh) => {
+    const teardownVis = setupRealtimeSync((table, payload) => {
+      const gn = payload?.new?.gare || payload?.old?.gare;
+      if (!gn) return;
       setAll((prev) => {
-        // Pour toute gare présente dans pendingState (push en cours ou récemment
-        // pushé, conf serveur pas encore retombée), on garde la version locale
-        // SANS aucune condition de timestamp. Les timestamps locaux ne sont pas
-        // fiables (ils changent à chaque keystroke), et c'est précisément ce
-        // qu'on essaie de protéger contre l'écho realtime qui pourrait les
-        // écraser.
-        // BUG FIX (27/05) : on part de prev (pas {}) pour PRÉSERVER les gares
-        // locales qui n'existeraient pas (encore) côté serveur (ex: visite tout
-        // juste créée, ou modifs en pending). Puis on applique fresh par-dessus
-        // pour chaque gare présente côté serveur. Puis pendingState override.
-        const merged = { ...prev, ...fresh };
-        const now = Date.now();
-        // Anti-flicker : garder le local pour les gares éditées très récemment
-        // (couvre la course "pull lent vs push confirmé" qui faisait clignoter).
-        Object.keys(lastLocalEdit.current).forEach(gn => {
-          if (now - lastLocalEdit.current[gn] < PROTECT_MS && prev[gn]) merged[gn] = prev[gn];
-        });
-        Object.keys(pendingState.current).forEach(gn => {
-          merged[gn] = pendingState.current[gn];
-        });
-        return merged;
+        const cur = prev[gn] || { gare: gn, data: {}, updated: 0, auteur: 'Anonyme' };
+        // --- meta visite (auteurs) ---
+        if (table === 'visite_meta') {
+          const auteur = payload?.new?.auteurs;
+          if (!auteur || auteur === cur.auteur) return prev;
+          return { ...prev, [gn]: { ...cur, auteur } };
+        }
+        // --- réponse (un critère) ---
+        const cid = payload?.new?.critere_id || payload?.old?.critere_id;
+        if (!cid) return prev;
+        // Protège MA saisie en cours sur CE critère précis : si j'ai une modif
+        // non encore poussée dessus, je n'applique pas l'événement (évite que
+        // mon propre écho — ou une modif concurrente — écrase ce que je tape).
+        // Les autres critères de la même gare, eux, se mettent bien à jour.
+        if (pendingCriteres.current[gn] && pendingCriteres.current[gn].has(cid)) return prev;
+        const data = { ...cur.data };
+        const val = payload?.new?.value;
+        if (payload.eventType === 'DELETE' || val === null || val === undefined) {
+          if (!(cid in data)) return prev; // déjà absent → rien à faire
+          delete data[cid];
+        } else {
+          if (JSON.stringify(data[cid]) === JSON.stringify(val)) return prev; // déjà à jour
+          data[cid] = val;
+        }
+        const ts = payload?.new?.updated_at ? new Date(payload.new.updated_at).getTime() : Date.now();
+        return { ...prev, [gn]: { ...cur, data, updated: Math.max(cur.updated || 0, ts) } };
       });
-    }, (gn) => !!pendingState.current[gn] || (Date.now() - (lastLocalEdit.current[gn] || 0) < PROTECT_MS));
+    });
     const teardownGri = setupGrilleRealtime(() => bumpGrid());
     return () => { teardownVis(); teardownGri(); };
   }, [bumpGrid]);
