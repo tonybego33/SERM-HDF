@@ -1062,27 +1062,63 @@ async function deleteVisiteRemote(gareName) {
 
 /* Real-time sync : refresh app state when teammates change data
    On écoute les 2 tables (responses pour les réponses, visite_meta pour les auteurs) */
-function setupRealtimeSync(onChange, isLocalEcho) {
+// ─────────────────────────────────────────────────────────────────────────
+// FUSION SERVEUR → LOCAL, AU NIVEAU DU CRITÈRE (et non de la gare entière).
+// C'est LE correctif central. Avant, on protégeait/remplaçait la gare entière,
+// ce qui faisait que deux personnes sur la même gare ne voyaient chacune que
+// leur propre vision partielle (4% vs 16%). Ici :
+//   • la VÉRITÉ, c'est le serveur (fresh) → on voit les saisies des collègues
+//     EN DIRECT, même sur une gare qu'on est en train de remplir ;
+//   • on ne RÉ-ÉCRASE avec le local QUE :
+//       - les critères pas encore envoyés (pendingCriteres), et
+//       - les critères envoyés il y a moins de 4 s (grâce : laisse le serveur
+//         propager notre valeur, évite le clignotement "disparaît/réapparaît").
+//   • les gares locales absentes du serveur sont conservées.
+function mergeServerCriterionLevel(prev, fresh, pendingCriteresRef, lastPushedAtRef) {
+  const merged = { ...prev };
+  const now = Date.now();
+  const GRACE = 4000;
+  Object.keys(fresh).forEach(gn => {
+    const serverV = fresh[gn];
+    const localData = (prev[gn] && prev[gn].data) || {};
+    // Critères à garder en version locale pour cette gare :
+    const protect = new Set();
+    const pend = pendingCriteresRef.current[gn];
+    if (pend) pend.forEach(cid => protect.add(cid));            // pas encore envoyés
+    Object.keys(localData).forEach(cid => {
+      const t = lastPushedAtRef.current[gn + '::' + cid];
+      if (t && now - t < GRACE) protect.add(cid);              // envoyés il y a < 4s
+    });
+    if (protect.size === 0) {
+      merged[gn] = serverV;                                     // vérité serveur intégrale
+      return;
+    }
+    const data = { ...(serverV.data || {}) };
+    protect.forEach(cid => {
+      if (cid in localData) data[cid] = localData[cid];         // garder ma saisie
+      else delete data[cid];                                    // critère effacé en local
+    });
+    merged[gn] = { ...serverV, data };
+  });
+  return merged;
+}
+
+function setupRealtimeSync(onChange) {
   if (!supa) return () => {};
   try {
     let pullTimeout = null;
+    // À chaque changement (de qui que ce soit), on recharge l'état complet (debounce
+    // 400 ms pour absorber les rafales), puis la fusion au critère protège notre
+    // saisie en cours. On NE bloque plus le rechargement pour "nos" gares : c'est
+    // précisément ce qui empêchait de voir l'autre remplir en direct.
     const schedulePull = () => {
-      // Debounce : si plusieurs events arrivent en rafale (multi-user), on attend
-      // que ça se calme, puis on recharge l'ÉTAT COMPLET. Approche auto-réparatrice
-      // (on ne dépend pas de recevoir chaque event) — rapide car peu de données
-      // grâce à l'archivage.
       if (pullTimeout) clearTimeout(pullTimeout);
       pullTimeout = setTimeout(async () => {
-        const startedAt = Date.now();
         const fresh = await withTimeout(pullAllFromSupa());
-        if (fresh) onChange(fresh, startedAt);
+        if (fresh) onChange(fresh);
       }, 400);
     };
-    const handle = (payload) => {
-      const gn = payload?.new?.gare || payload?.old?.gare;
-      if (gn && isLocalEcho && isLocalEcho(gn)) return; // n'écrase pas ma saisie en cours
-      schedulePull();
-    };
+    const handle = () => schedulePull();
     const channel = supa.channel('responses_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'responses' }, handle)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'visite_meta' }, handle)
@@ -1392,7 +1428,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 4';
+const APP_VERSION = 'v2026-06-09 · 5';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
@@ -4176,17 +4212,10 @@ function App() {
     Promise.all([withTimeout(pullAllFromSupa()), withTimeout(pullGrilleFromSupa())]).then(([fresh, grille]) => {
       if (!mounted) return;
       if (fresh) {
-        // Au pull initial, on respecte pendingState au cas où l'utilisateur
-        // aurait déjà modifié quelque chose (rare mais possible si pull lent)
-        // BUG FIX (27/05) : on part de prev (pas {}) pour PRÉSERVER les gares
-        // locales qui n'existeraient pas (encore) côté serveur.
-        setAll((prev) => {
-          const merged = { ...prev, ...fresh };
-          Object.keys(pendingState.current).forEach(gn => {
-            merged[gn] = pendingState.current[gn];
-          });
-          return merged;
-        });
+        // Fusion au niveau critère : vérité serveur + on garde nos critères non
+        // encore envoyés / juste envoyés. Préserve aussi les gares locales absentes
+        // du serveur (visite tout juste créée, push en cours).
+        setAll((prev) => mergeServerCriterionLevel(prev, fresh, pendingCriteres, lastPushedAt));
       }
       if (grille) bumpGrid();
       setSyncing(false);
@@ -4205,20 +4234,7 @@ function App() {
     try {
       const fresh = await withTimeout(pullAllFromSupa());
       if (fresh) {
-        setAll((prev) => {
-          // On préserve les gares locales (prev) puis on applique fresh par-dessus
-          // pour les gares présentes côté serveur. Le pendingState override en dernier.
-          const merged = { ...prev, ...fresh };
-          const now = Date.now();
-          // Anti-flicker : garder le local pour les gares éditées très récemment
-          Object.keys(lastLocalEdit.current).forEach(gn => {
-            if (now - lastLocalEdit.current[gn] < PROTECT_MS && prev[gn]) merged[gn] = prev[gn];
-          });
-          Object.keys(pendingState.current).forEach(gn => {
-            merged[gn] = pendingState.current[gn];
-          });
-          return merged;
-        });
+        setAll((prev) => mergeServerCriterionLevel(prev, fresh, pendingCriteres, lastPushedAt));
         showToast('↻ Actualisé', 'success');
       } else {
         showToast('Pas de connexion', 'error');
@@ -4233,26 +4249,9 @@ function App() {
 
   // Real-time sync : refresh when teammates push changes
   useEffect(() => {
-    const teardownVis = setupRealtimeSync((fresh, pullStartedAt) => {
-      setAll((prev) => {
-        // On part de prev pour préserver les gares locales pas (encore) côté
-        // serveur, puis on applique l'état frais complet par-dessus. Puis on
-        // re-protège ma saisie en cours (pendingState + édition très récente).
-        const merged = { ...prev, ...fresh };
-        const cutoff = pullStartedAt || Date.now();
-        Object.keys(lastLocalEdit.current).forEach(gn => {
-          // Pull PÉRIMÉ pour cette gare : je l'ai éditée APRÈS le départ du pull,
-          // donc ses données ne contiennent pas ma saisie → garder le local.
-          // (couvre le cas "rechargement lent qui revient après ma saisie" =
-          //  le flicker "ça disparaît puis réapparaît").
-          if (lastLocalEdit.current[gn] >= cutoff && prev[gn]) merged[gn] = prev[gn];
-        });
-        Object.keys(pendingState.current).forEach(gn => {
-          merged[gn] = pendingState.current[gn];
-        });
-        return merged;
-      });
-    }, (gn) => !!pendingState.current[gn] || (Date.now() - (lastLocalEdit.current[gn] || 0) < PROTECT_MS));
+    const teardownVis = setupRealtimeSync((fresh) => {
+      setAll((prev) => mergeServerCriterionLevel(prev, fresh, pendingCriteres, lastPushedAt));
+    });
     const teardownGri = setupGrilleRealtime(() => bumpGrid());
     return () => { teardownVis(); teardownGri(); };
   }, [bumpGrid]);
@@ -4328,6 +4327,10 @@ function App() {
   // qu'une gare a été éditée récemment (< PROTECT_MS), un pull serveur ne peut
   // PAS écraser sa version locale (couvre la course pull-lent / push-confirmé).
   const lastLocalEdit = useRef({});
+  // Critère -> timestamp du dernier envoi réussi (clé "gare::critere"). Sert à la
+  // "grâce de 4 s" dans la fusion : on garde brièvement notre valeur locale après
+  // l'avoir envoyée, le temps que le serveur la propage (anti-clignotement).
+  const lastPushedAt = useRef({});
   const PROTECT_MS = 15000;
 
   const debouncedPush = useCallback((visite) => {
@@ -4366,8 +4369,9 @@ function App() {
         return;
       }
       // SUCCÈS : on retire du buffer UNIQUEMENT ce qu'on vient de confirmer
-      // (sans toucher aux critères ajoutés entre-temps par une nouvelle saisie).
-      if (critSet) critsToFlush.forEach(cid => critSet.delete(cid));
+      // (sans toucher aux critères ajoutés entre-temps par une nouvelle saisie),
+      // et on note l'heure d'envoi de chaque critère (grâce de 4 s à la fusion).
+      if (critSet) critsToFlush.forEach(cid => { critSet.delete(cid); lastPushedAt.current[gn + '::' + cid] = Date.now(); });
       if (flushMeta) pendingMetaFlag.current[gn] = false;
       // Si plus rien en attente, on libère la protection locale 3 s plus tard
       // (absorbe les échos realtime retardés), sauf si une nouvelle saisie est
