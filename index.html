@@ -843,6 +843,32 @@ const DEVICE_ID = (() => {
 const isMyPending = (p) => !!(p && p.pending && (p.owner === DEVICE_ID || !p.owner));
 // Photo en attente appartenant à un AUTRE appareil (URL blob: inexploitable ici)
 const isForeignPending = (p) => !!(p && p.pending && p.owner && p.owner !== DEVICE_ID);
+// Photo réellement uploadée = vraie URL http(s), pas en attente (pas blob:/data:).
+const isUploadedPhoto = (p) => !!(p && p.url && /^https?:\/\//.test(p.url) && !p.pending);
+// Nettoie une valeur de critère AVANT envoi serveur : la base ne stocke QUE des
+// photos uploadées (jamais de blob:/pending). C'est LA correction du bug "photo
+// en attente à vie" : sans ça, une URL blob: locale finissait écrite en base et
+// s'affichait "en attente" partout / introuvable au rechargement.
+function stripPendingPhotosForServer(value) {
+  if (!value || typeof value !== 'object' || !Array.isArray(value.photos)) return value;
+  const kept = value.photos.filter(isUploadedPhoto);
+  if (kept.length === value.photos.length) return value;
+  return { ...value, photos: kept };
+}
+// Réinjecte MES photos en attente (locales) par-dessus une valeur venue du serveur,
+// pour ne pas les perdre lors d'une fusion (le serveur ne stocke jamais de pending).
+// → l'aperçu local et le ré-essai d'upload survivent à un refresh / retour d'app.
+function keepLocalPendingPhotos(serverVal, localVal) {
+  const localPending = (localVal && typeof localVal === 'object' && Array.isArray(localVal.photos))
+    ? localVal.photos.filter(p => isMyPending(p)) : [];
+  if (localPending.length === 0) return serverVal;
+  const base = (serverVal && typeof serverVal === 'object' && !Array.isArray(serverVal))
+    ? serverVal : (serverVal !== undefined && serverVal !== null ? { val: serverVal } : {});
+  const serverPhotos = Array.isArray(base.photos) ? base.photos : [];
+  const seen = new Set(serverPhotos.map(p => p && p.blobId).filter(Boolean));
+  const merged = [...serverPhotos, ...localPending.filter(p => !p.blobId || !seen.has(p.blobId))];
+  return { ...base, photos: merged };
+}
 // Dernière erreur d'upload photo (message exact) → affichée dans l'app pour diagnostic.
 let LAST_PHOTO_ERR = null;
 let _photoErrToast = null; // évite de spammer le même message en boucle
@@ -963,13 +989,17 @@ async function restoreBlobUrls(all) {
 // Push UN critère modifié vers Supabase (granularité fine)
 async function pushCritereToSupa(gareName, critereId, value, auteur) {
   if (!supa) return;
+  // La base ne stocke QUE des photos uploadées : on retire toute photo en attente
+  // (blob: local) avant l'envoi. La photo en attente reste en local + IndexedDB et
+  // sera enregistrée en base avec sa vraie URL une fois l'upload terminé.
+  const cleanValue = stripPendingPhotosForServer(value);
   // ⚠ On LÈVE l'erreur (au lieu de l'avaler) : c'est ce qui permet à l'appelant
   // de savoir qu'un envoi a échoué et de le rejouer. Sans ça, sur réseau
   // instable, les saisies étaient "perdues en silence" côté serveur.
   const { error } = await supa.from('responses').upsert({
     gare: gareName,
     critere_id: critereId,
-    value: value === undefined ? null : value,
+    value: cleanValue === undefined ? null : cleanValue,
     auteur: auteur || 'Anonyme',
     updated_at: new Date().toISOString()
   }, { onConflict: 'gare,critere_id' });
@@ -1125,8 +1155,11 @@ function applyResponseDelta(prev, payload, pendingCrit) {
     if (!(cid in newData)) return prev; // déjà absent → rien à faire
     delete newData[cid];
   } else {
-    if (JSON.stringify(newData[cid]) === JSON.stringify(val)) return prev; // pas de réel changement
-    newData[cid] = val;
+    // On préserve MES photos en attente (le serveur n'en stocke jamais) : elles ne
+    // doivent pas disparaître quand un delta serveur arrive sur ce critère.
+    const mergedVal = keepLocalPendingPhotos(val, newData[cid]);
+    if (JSON.stringify(newData[cid]) === JSON.stringify(mergedVal)) return prev; // pas de réel changement
+    newData[cid] = mergedVal;
   }
   const tsRaw = payload?.new && payload.new.updated_at;
   const ts = tsRaw ? new Date(tsRaw).getTime() : Date.now();
@@ -1229,6 +1262,10 @@ function mergeServerState(prev, fresh, pending, recover) {
         else data[cid] = lv;
       });
     }
+    // 3. Préserver MES photos en attente même là où le serveur fait foi (le serveur
+    //    ne stocke jamais de pending) → une photo pas encore uploadée ne disparaît
+    //    pas au refresh / retour d'app, et reste dans la file de ré-essai.
+    Object.keys(data).forEach((cid) => { data[cid] = keepLocalPendingPhotos(data[cid], ld[cid]); });
     merged[gn] = {
       ...freshV,
       data,
@@ -1569,7 +1606,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 11';
+const APP_VERSION = 'v2026-06-09 · 12';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
@@ -4188,7 +4225,6 @@ function App() {
   const [retryingPhotos, setRetryingPhotos] = useState(null); // { done, total } | null
   const [retryTick, setRetryTick] = useState(0); // relance périodique du ré-envoi photos
   const retryingRef = useRef(null); // reflète retryingPhotos pour éviter de relancer pendant un envoi
-  const lastSyncRef = useRef(0); // curseur (ms epoch serveur) pour le rattrapage incrémental auto-réparant
 
   useEffect(() => { retryingRef.current = retryingPhotos; }, [retryingPhotos]);
 
@@ -4370,13 +4406,6 @@ function App() {
     Promise.all([withTimeout(pullAllFromSupa()), withTimeout(pullGrilleFromSupa())]).then(([fresh, grille]) => {
       if (!mounted) return;
       if (fresh) {
-        // Init du curseur de rattrapage incrémental = horodatage serveur le plus récent
-        // vu au pull initial (skew-proof car on compare des updated_at serveur entre eux).
-        try {
-          let mx = 0;
-          Object.values(fresh).forEach((v) => { if (v && v.updated && v.updated > mx) mx = v.updated; });
-          if (mx > lastSyncRef.current) lastSyncRef.current = mx;
-        } catch (e) {}
         // Fusion par critère : le serveur fait foi, on ne préserve que MES critères
         // non encore confirmés (rare au tout premier pull, mais possible si le pull
         // est lent et que l'utilisateur a déjà saisi quelque chose). On part de prev
@@ -4462,60 +4491,6 @@ function App() {
       if (reconcileTO) clearTimeout(reconcileTO);
     };
   }, [bumpGrid]);
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // FILET DE SÉCURITÉ AUTO-RÉPARANT  ← LE correctif central
-  // Le realtime du free tier perd ~30 % des événements → des changements jamais
-  // appliqués → divergence entre tels + photos qui restent "en attente". L'ancienne
-  // version (qui marchait à 6) rechargeait TOUT à chaque event → jamais de divergence.
-  // Ici on retrouve cette robustesse SANS la lourdeur : toutes les 8 s on rattrape
-  // UNIQUEMENT les lignes modifiées depuis le dernier passage (incrémental → léger,
-  // ne consomme quasi pas de bande passante). Fonctionne MÊME si le realtime est
-  // cassé/désactivé. applyResponseDelta protège mes saisies non confirmées et ignore
-  // les valeurs identiques → ce rattrapage ne peut PAS écraser mon travail en cours,
-  // il ne fait qu'AJOUTER ce que j'aurais raté.
-  useEffect(() => {
-    if (!supa) return;
-    let stopped = false;
-    const reconcileIncremental = async () => {
-      if (stopped || !lastSyncRef.current) return; // pas encore initialisé par le pull initial
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-      const sinceIso = new Date(lastSyncRef.current - 10000).toISOString(); // recouvrement 10 s (anti décalage d'horloge)
-      try {
-        const { data, error } = await supa.from('responses').select('*')
-          .gt('updated_at', sinceIso)
-          .order('updated_at', { ascending: true })
-          .limit(5000);
-        if (!error && data && data.length) {
-          let mx = lastSyncRef.current;
-          setAll((prev) => {
-            let next = prev;
-            data.forEach((row) => {
-              if (!row || !row.gare || !row.critere_id) return;
-              const ts = row.updated_at ? new Date(row.updated_at).getTime() : 0;
-              if (ts > mx) mx = ts;
-              next = applyResponseDelta(next, { new: row, eventType: 'UPDATE' }, pendingCriteres.current);
-            });
-            return next;
-          });
-          lastSyncRef.current = mx;
-        }
-        const { data: md } = await supa.from('visite_meta').select('*')
-          .gt('updated_at', sinceIso).order('updated_at', { ascending: true }).limit(2000);
-        if (md && md.length) {
-          setAll((prev) => {
-            let next = prev;
-            md.forEach((row) => { if (row && row.gare) next = applyMetaDelta(next, { new: row }, pendingMetaFlag.current); });
-            return next;
-          });
-        }
-      } catch (e) { /* réseau : on retentera au prochain tick */ }
-    };
-    const id = setInterval(reconcileIncremental, 8000);
-    window.addEventListener('online', reconcileIncremental);
-    return () => { stopped = true; clearInterval(id); window.removeEventListener('online', reconcileIncremental); };
-    // eslint-disable-next-line
-  }, []);
 
   // Persist locally
   useEffect(() => { saveAll(all); }, [all]);
