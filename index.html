@@ -981,6 +981,25 @@ async function listAllPhotoBlobs() {
 // Reconstruit les blob URLs locales pour les photos pending au chargement.
 // (Les URLs object n'étant pas sérialisables, il faut les recréer après reload.)
 async function restoreBlobUrls(all) {
+  // ⚠ FIX "photos qui se multiplient" (s'exécute TOUJOURS, même sans IndexedDB) :
+  // toute photo encore EN ATTENTE qui n'a pas de blobId (ex : créée par le repli data-URL
+  // d'une ancienne version, ou sur un appareil sans IndexedDB) reçoit une identité STABLE.
+  // Sans elle, sa version uploadée ne peut pas lui être rattachée → elle se ré-uploade et
+  // s'AJOUTE à chaque cycle → doublons. (mutation en place)
+  try {
+    Object.values(all || {}).forEach(v => {
+      if (!v?.data) return;
+      Object.values(v.data).forEach(d => {
+        if (d && typeof d === 'object' && Array.isArray(d.photos)) {
+          d.photos.forEach(p => {
+            if (p && p.pending && !p.blobId) {
+              p.blobId = 'rb_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+            }
+          });
+        }
+      });
+    });
+  } catch (e) {}
   if (!isIndexedDBAvailable()) return all;
   try {
     const blobs = await listAllPhotoBlobs();
@@ -1410,9 +1429,18 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
       }
     }
     // Essai 2 : data URL en localStorage (ancien comportement, limite ~5 MB total)
+    // ⚠ FIX "photos qui se multiplient" : on attribue un blobId (identité STABLE) même
+    // dans ce repli. Sans lui, la version uploadée ne pouvait pas être rattachée à
+    // l'en-attente (l'une identifiée par l'URL data:, l'autre par l'URL https) → à chaque
+    // ré-essai l'appli ré-uploadait + AJOUTAIT une copie au lieu de remplacer. Le blobId
+    // n'a pas besoin d'IndexedDB : c'est juste une étiquette d'identité ; le contenu reste
+    // dans la data URL (utilisée par retryPendingPhotos pour uploader).
+    const fbBlobId = `${gareName}__${critId}__${Date.now()}__${Math.random().toString(36).slice(2, 8)}`
+      .replace(/[^a-zA-Z0-9_-]/g, '_');
     return new Promise((resolve, reject) => {
       const r = new FileReader();
       r.onload = () => resolve({
+        blobId: fbBlobId,
         url: r.result, name: toUpload.name, local: true,
         pending: !!supa,
         owner: DEVICE_ID,                         // ← appareil propriétaire
@@ -1441,7 +1469,14 @@ async function uploadPhoto(gareName, critId, file, opts = {}) {
     const ts = Date.now();
     const safe = toUpload.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-40);
     const slug = gareName.replace(/[^a-zA-Z0-9]/g, '_');
-    const path = `${slug}/${critId}_${ts}_${safe}`;
+    // ⚠ FIX "Invalid key" : Supabase Storage refuse les caractères non-ASCII (accents,
+    // espaces…) dans le chemin d'un fichier. Le nom de gare est déjà nettoyé (slug), mais
+    // le critère était inséré TEL QUEL → un id comme "pmr_v_picto_doublé" (avec é) donnait
+    // une clé INVALIDE → Supabase rejetait l'upload → photo bloquée "en attente" à vie.
+    // On nettoie le critère POUR LE CHEMIN uniquement ; l'identifiant technique du critère
+    // dans la table 'responses' (critere_id) n'est PAS modifié → aucune incompatibilité.
+    const critKey = critId.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `${slug}/${critKey}_${ts}_${safe}`;
     // ⚠ Timeout 120 s : un upload qui "pend" (réseau qui répond pas) ne se résout
     // JAMAIS → retryPendingPhotos reste bloqué → plus AUCUN ré-essai photo. Le timeout
     // transforme un blocage en simple échec → on retente.
@@ -1510,8 +1545,14 @@ async function retryPendingPhotos(all, onProgress) {
             if (entry && entry.blob) {
               file = new File([entry.blob], p.name || 'photo.jpg', { type: entry.blob.type });
             }
-          } else if (p.url && p.url.startsWith('data:')) {
-            // ── Cas 2 : photo legacy en data URL
+          }
+          // ── Cas 2 : data URL (repli quand IndexedDB indisponible OU blob introuvable).
+          // ⚠ FIX "photos qui se multiplient" : AVANT c'était un "else if" → une photo avec
+          // un blobId mais SANS blob en IndexedDB (repli data-URL) ne retombait jamais ici →
+          // elle restait "en attente" et se ré-uploadait en boucle. Le fallthrough la fait
+          // uploader via sa data URL, en conservant son blobId → la version uploadée est
+          // bien reconnue comme la même → plus de doublons.
+          if (!file && p.url && p.url.startsWith('data:')) {
             const resp = await fetch(p.url);
             const blob = await resp.blob();
             file = new File([blob], p.name || 'photo.jpg', { type: blob.type });
@@ -1655,7 +1696,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-09 · 21';
+const APP_VERSION = 'v2026-06-10 · 23';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
