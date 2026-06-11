@@ -863,7 +863,11 @@ function stripPendingPhotosForServer(value) {
 //    version est plus récente (`_at`), sinon on la retire → c'est ce qui fait que les
 //    SUPPRESSIONS se propagent (la dernière action gagne) sans faire "disparaître" une
 //    photo juste uploadée (sa version locale est plus récente que l'ancien message).
-function reconcilePhotos(serverVal, localVal) {
+//  • deltaUnionOnly = true → on NE retire JAMAIS une photo locale (union pure). Utilisé
+//    pour les messages TEMPS-RÉEL, qui peuvent être incomplets/tronqués : un delta ne doit
+//    pouvoir QU'AJOUTER une photo, jamais en faire disparaître une. Les vraies suppressions
+//    sont réconciliées par le pull complet (mergeServerState), qui fait foi.
+function reconcilePhotos(serverVal, localVal, deltaUnionOnly) {
   const incArr = (serverVal && typeof serverVal === 'object' && Array.isArray(serverVal.photos)) ? serverVal.photos : null;
   const locArr = (localVal && typeof localVal === 'object' && Array.isArray(localVal.photos)) ? localVal.photos : null;
   if (!incArr && !locArr) return serverVal;
@@ -885,8 +889,9 @@ function reconcilePhotos(serverVal, localVal) {
                  : (isUploadedPhoto(p) && !isUploadedPhoto(inc)) ? p
                  : inc;
       order.push(k); result.set(k, best);
-    } else if (isMyPending(p) || localIsNewer) {
-      // en attente chez moi → toujours gardée ; sinon gardée seulement si je suis plus récent
+    } else if (isMyPending(p) || localIsNewer || deltaUnionOnly) {
+      // en attente chez moi → toujours gardée ; union temps-réel → toujours gardée ;
+      // sinon (pull) gardée seulement si je suis plus récent
       order.push(k); result.set(k, p);
     }
     // sinon : photo absente du serveur ET serveur plus récent → suppression → on retire
@@ -1190,8 +1195,12 @@ async function deleteVisiteRemote(gareName) {
 // Applique un événement `responses` (INSERT/UPDATE/DELETE) à l'état, sans SQL.
 // Retourne `prev` inchangé s'il n'y a rien à modifier (évite les re-renders inutiles).
 function applyResponseDelta(prev, payload, pendingCrit) {
-  const isDelete = payload?.eventType === 'DELETE'
-    || !payload?.new || (payload?.new && Object.keys(payload.new).length === 0);
+  // ⚠ FIX "photos qui sautent / disparaissent" : on ne traite comme SUPPRESSION qu'un VRAI
+  // événement DELETE. Un payload UPDATE/INSERT arrive parfois TRONQUÉ (charge / free tier) :
+  // `new` vide ou `value` nulle. Avant, on le prenait pour une suppression → le critère ET
+  // ses photos disparaissaient (puis réapparaissaient au pull suivant → l'effet "ça saute").
+  // Désormais un payload tronqué ne supprime RIEN : on garde le local et un pull corrigera.
+  const isDelete = payload?.eventType === 'DELETE';
   const row = (payload?.new && payload.new.gare) ? payload.new
             : (payload?.old && payload.old.gare) ? payload.old : null;
   if (!row) return prev;
@@ -1202,23 +1211,22 @@ function applyResponseDelta(prev, payload, pendingCrit) {
   const cur = prev[gn] || { gare: gn, data: {}, updated: 0, auteur: 'Anonyme' };
   const newData = { ...(cur.data || {}) };
   const val = payload?.new ? payload.new.value : undefined;
-  if (isDelete || val === null || val === undefined) {
+  if (isDelete) {
     if (!(cid in newData)) return prev; // déjà absent → rien à faire
-    // ⚠ FIX "photo en attente perdue" : on NE supprime PAS un critère qui contient une
-    // de MES photos encore en attente d'upload. Un événement realtime arrive parfois
-    // TRONQUÉ en free tier (payload.new vide/partiel) et serait pris pour une suppression
-    // → le critère, et donc la photo pas encore montée, disparaîtrait définitivement (ni
-    // local ni serveur). Une réponse texte se récupère au prochain pull, mais une photo
-    // en attente n'existe QUE en local : il faut la garder jusqu'à ce que le retry la monte.
+    // On NE supprime PAS un critère qui contient une de MES photos encore en attente
+    // d'upload (elle n'existe QU'en local : un pull ne la récupérerait pas).
     const localCur = newData[cid];
     const hasMyPending = localCur && typeof localCur === 'object'
       && Array.isArray(localCur.photos) && localCur.photos.some(isMyPending);
     if (hasMyPending) return prev; // on garde le critère tel quel ; le retry finira l'upload
     delete newData[cid];
   } else {
-    // On préserve MES photos en attente (le serveur n'en stocke jamais) : elles ne
-    // doivent pas disparaître quand un delta serveur arrive sur ce critère.
-    const mergedVal = reconcilePhotos(val, newData[cid]);
+    // UPDATE / INSERT. Payload tronqué (aucune valeur exploitable) → on garde le local
+    // intact ; le pull complet (déclenché par ailleurs) réconciliera le vrai état.
+    if (val === null || val === undefined) return prev;
+    // Temps-réel = UNION PURE (3e argument true) : un delta peut AJOUTER une photo, jamais
+    // en faire disparaître une. Les suppressions réelles passent par le pull (mergeServerState).
+    const mergedVal = reconcilePhotos(val, newData[cid], true);
     if (JSON.stringify(newData[cid]) === JSON.stringify(mergedVal)) return prev; // pas de réel changement
     newData[cid] = mergedVal;
   }
@@ -1251,6 +1259,13 @@ function setupRealtimeSync({ onResponseDelta, onMetaDelta, onReconcile, isOwnEch
     const handleResp = (payload) => {
       const gn = payload?.new?.gare || payload?.old?.gare;
       const cid = payload?.new?.critere_id || payload?.old?.critere_id;
+      // Payload UPDATE/INSERT TRONQUÉ (sans valeur exploitable) : ne pas le laisser passer
+      // (il serait pris pour une suppression) → on déclenche un pull ciblé qui récupère le
+      // vrai état du serveur. Seul un vrai DELETE doit pouvoir retirer quelque chose.
+      if (payload?.eventType !== 'DELETE' && (!payload?.new || payload.new.value == null)) {
+        if (onReconcile) onReconcile();
+        return;
+      }
       if (gn && cid) {
         if (isOwnEcho && isOwnEcho(gn, cid)) return; // mon propre écho non confirmé
         onResponseDelta(payload);
@@ -1696,7 +1711,7 @@ const GRID_VERSION = '2026-05-30-v4-triggers-in-sections';
    tous les appareils tournent sur le MÊME code. Si deux appareils affichent des
    versions différentes → l'un sert un ancien cache → vider le cache de celui-ci.
    À incrémenter à chaque déploiement. */
-const APP_VERSION = 'v2026-06-10 · 23';
+const APP_VERSION = 'v2026-06-11 · 24';
 
 // Push la grille courante vers Supabase
 async function pushGrilleToSupa(by) {
